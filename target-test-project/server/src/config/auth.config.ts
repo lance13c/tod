@@ -95,11 +95,11 @@ export const auth = betterAuth({
     magicLink({
       sendMagicLink: async ({ email, url, token }) => {
         console.log('🔮 Sending magic link to:', email)
-        console.log('📎 Magic link URL:', url)
+        console.log('📎 Original magic link URL:', url)
         
-        // Ensure the URL points to the server API, not the client
-        const verifyUrl = url.replace('http://localhost:3001/api/auth', 'http://localhost:8000/api/auth')
-        console.log('✅ Corrected verify URL:', verifyUrl)
+        // Ensure the URL points to the Next.js client on port 3001
+        const verifyUrl = url.replace('http://localhost:8000', 'http://localhost:3001')
+        console.log('✅ Client verify URL:', verifyUrl)
         
         const result = await sendEmail({
           to: email,
