@@ -1,30 +1,28 @@
-import * as mongoose from 'mongoose'
-import { MongoClient } from 'mongodb'
+import { PrismaClient } from '@prisma/client'
 
-const mongoUri = process.env.MONGO_URI
-
-if (!mongoUri) {
-  throw new Error('Missing MONGO_URI in environment variables')
+const prismaClientSingleton = () => {
+  return new PrismaClient({
+    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+  })
 }
 
-const DB = async () => {
+declare global {
+  var prisma: undefined | ReturnType<typeof prismaClientSingleton>
+}
+
+const prisma = globalThis.prisma ?? prismaClientSingleton()
+
+if (process.env.NODE_ENV !== 'production') globalThis.prisma = prisma
+
+export const DB = async () => {
   try {
-    // Connect Mongoose
-    const conn = await mongoose.connect(mongoUri, {
-      autoIndex: true,
-    })
-    console.log(`✅ MongoDB Connected: ${conn.connection.host}`)
-
-    // Connect MongoDB Client (for Better Auth)
-    const mongoClient = new MongoClient(mongoUri)
-    await mongoClient.connect()
-    console.log('✅ MongoDB Client Connected for Better Auth')
-
-    return { mongoose, mongoClient }
+    await prisma.$connect()
+    console.log('✅ Database Connected via Prisma')
+    return prisma
   } catch (err: any) {
-    console.error(`❌ MongoDB Connection Error: ${err.message}`)
+    console.error(`❌ Database Connection Error: ${err.message}`)
     process.exit(1)
   }
 }
 
-export default DB
+export default prisma

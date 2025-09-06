@@ -11,18 +11,21 @@
   "scripts": {
     "start": "NODE_ENV=production bun run src/server.ts",
     "dev": "bun run --hot src/server.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:seed": "bun run src/seed.ts"
   },
   "dependencies": {
-    "@types/mongoose": "^5.11.97",
+    "@prisma/client": "^5.22.0",
     "axios": "^1.8.2",
     "better-auth": "^1.2.3",
-    "hono": "^4.7.4",
-    "mongodb": "^6.14.2",
-    "mongoose": "^8.12.1"
+    "hono": "^4.7.4"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "prisma": "^5.22.0"
   },
   "engines": {
     "bun": ">=1.0.0"
@@ -31,8 +34,8 @@
     "bun",
     "hono",
     "better-auth",
-    "mongodb",
-    "mongoose",
+    "prisma",
+    "sqlite",
     "typescript",
     "api",
     "rest",
