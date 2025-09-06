@@ -1,14 +1,17 @@
 GroupUp MVP - System Design Document
 1. System Overview
-GroupUp MVP is a simplified proximity-based document sharing platform that allows users to create persistent sessions, share documents, and access them across devices through authenticated accounts.
+GroupUp MVP is a simplified proximity-based onboarding utility that allows users to quickly connect with those around them and share document/photos/links/credentials 
+
 Core Features (MVP)
 
-Email/password and SSO authentication
+Email/password magic link sign in. Show the last auth method a user used (based on local storage flag)
 Create/join geo-locked sharing sessions
-Upload and share documents
-Grid-based document gallery
+Have a guest/no login needed page that just asks for geolocation, checks a sqlite db for what building polygon (based on https://github.com/microsoft/USBuildingFootprints?tab=readme-ov-file) geojson files, which building the user is currently it, then setup a webrtc connection with all other participants.
+Upload and share documents to the webrtc. Source phone/computer has to stay awake/on (the files aren't really uploaded, they are transmitted directly)
+Grid-based document/photo gallery (like immich)
 Mobile-responsive design
-Persistent user sessions and documents
+Persistent user sessions and documents (have the user be presented an option for logging in)
+Easy to understand, keep it simple - stupid, frontpage that describes how this is a 
 
 2. Architecture Diagram
 ┌─────────────────────────────────────────────────────────────┐
@@ -59,6 +62,7 @@ UI Components: Custom components + Radix UI primitives
 Icons: Lucide React
 Forms: React Hook Form + Zod validation
 Grid Layout: CSS Grid with Masonry fallback
+trpc
 
 Backend
 
