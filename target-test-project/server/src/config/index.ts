@@ -1,2 +1,2 @@
-export { default as DB } from './db.config'
+export { DB, default as prisma } from './db.config'
 export * from './auth.config'
