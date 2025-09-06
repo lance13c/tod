@@ -5,7 +5,9 @@ import {
 } from 'better-auth/client/plugins'
 
 export const authClient = createAuthClient({
-  baseURL: 'http://localhost:8000/api/auth', // The base URL of the API
+  baseURL: typeof window !== 'undefined' 
+    ? `${window.location.origin}/api/auth`
+    : 'http://localhost:3001/api/auth', // Use full URL for the Next.js proxy
   plugins: [
     inferAdditionalFields({
       user: {

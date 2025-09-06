@@ -14,7 +14,7 @@ import {
 import { authClient, useSession } from '~/lib/auth'
 import { Flower, Github, Loader2 } from 'lucide-react'
 import { Separator } from '~/components/ui/separator'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 
 export default function Home() {
@@ -22,7 +22,18 @@ export default function Home() {
   const [isGoogleLoading, setIsGoogleLoading] = React.useState(false)
 
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { data: session } = useSession()
+
+  // Check for error parameters
+  React.useEffect(() => {
+    const error = searchParams.get('error')
+    if (error === 'INVALID_TOKEN') {
+      toast.error('Invalid or expired magic link', {
+        description: 'Please request a new magic link to sign in.',
+      })
+    }
+  }, [searchParams])
 
   const handleGithubLogin = async () => {
     setIsGithubLoading(true)
