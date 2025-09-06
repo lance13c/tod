@@ -108,6 +108,40 @@ export default function LoginPage() {
               {loading ? "Signing in..." : "Sign in"}
             </button>
           </div>
+
+          <div className="mt-6 relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300" />
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-gray-50 text-gray-500">
+                Or continue with
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <a
+              href="/magic-link"
+              className="group relative w-full flex justify-center py-2 px-4 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+            >
+              <svg
+                className="h-5 w-5 text-gray-400 mr-2"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                aria-label="Email icon"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                />
+              </svg>
+              Sign in with Magic Link
+            </a>
+          </div>
         </form>
       </div>
     </div>

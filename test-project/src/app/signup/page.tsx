@@ -11,7 +11,6 @@ export default function SignUpPage() {
     password: "",
     confirmPassword: "",
     name: "",
-    username: "",
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -44,7 +43,6 @@ export default function SignUpPage() {
         email: formData.email,
         password: formData.password,
         name: formData.name,
-        username: formData.username,
         callbackURL: "/verify-email",
       });
       router.push("/verify-email?message=check-email");
@@ -94,24 +92,6 @@ export default function SignUpPage() {
               />
             </div>
 
-            <div>
-              <label
-                htmlFor="username"
-                className="block text-sm font-medium text-gray-700"
-              >
-                Username
-              </label>
-              <input
-                id="username"
-                name="username"
-                type="text"
-                autoComplete="username"
-                value={formData.username}
-                onChange={handleChange}
-                className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="johndoe"
-              />
-            </div>
 
             <div>
               <label

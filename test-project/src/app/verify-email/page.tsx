@@ -76,6 +76,7 @@ export default function VerifyEmailPage() {
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
+                role="img"
                 aria-label="Success checkmark"
               >
                 <path
@@ -98,6 +99,7 @@ export default function VerifyEmailPage() {
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
+                role="img"
                 aria-label="Email icon"
               >
                 <path
@@ -124,6 +126,7 @@ export default function VerifyEmailPage() {
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
+                role="img"
                 aria-label="Error icon"
               >
                 <path

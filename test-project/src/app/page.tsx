@@ -37,7 +37,13 @@ export default function Home() {
                 href="/login"
                 className="inline-block w-full px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
               >
-                Sign In
+                Sign In with Password
+              </Link>
+              <Link
+                href="/magic-link"
+                className="inline-block w-full px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                Sign In with Magic Link
               </Link>
               <Link
                 href="/signup"
@@ -51,7 +57,7 @@ export default function Home() {
 
         <div className="mt-12 text-sm text-gray-500">
           <p>Powered by Better Auth</p>
-          <p className="mt-1">Email & Password Authentication</p>
+          <p className="mt-1">Email, Password & Magic Link Authentication</p>
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { sendEmail } from "better-auth/plugins/email";
+import { magicLink } from "better-auth/plugins";
 import nodemailer from "nodemailer";
 
 const prisma = new PrismaClient();
@@ -23,51 +23,71 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: true,
+    sendResetPassword: async ({ user, url }) => {
+      await transporter.sendMail({
+        from: `"${process.env.FROM_NAME}" <${process.env.FROM_EMAIL}>`,
+        to: user.email,
+        subject: "Reset your password",
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2>Password Reset Request</h2>
+            <p>We received a request to reset your password. Click the link below to create a new password:</p>
+            <a href="${url}" style="display: inline-block; padding: 12px 24px; background-color: #3b82f6; color: white; text-decoration: none; border-radius: 6px;">Reset Password</a>
+            <p style="margin-top: 20px; color: #666;">Or copy and paste this link:</p>
+            <p style="color: #666; word-break: break-all;">${url}</p>
+            <p style="margin-top: 20px; color: #666;">This link will expire in 1 hour.</p>
+            <hr style="margin-top: 30px; border: none; border-top: 1px solid #e5e5e5;">
+            <p style="color: #999; font-size: 12px;">If you didn't request a password reset, you can safely ignore this email.</p>
+          </div>
+        `,
+      });
+    },
   },
   emailVerification: {
     sendOnSignUp: true,
     autoSignInAfterVerification: true,
+    sendVerificationEmail: async ({ user, url }) => {
+      await transporter.sendMail({
+        from: `"${process.env.FROM_NAME}" <${process.env.FROM_EMAIL}>`,
+        to: user.email,
+        subject: "Verify your email address",
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2>Welcome to ${process.env.FROM_NAME}!</h2>
+            <p>Please verify your email address by clicking the link below:</p>
+            <a href="${url}" style="display: inline-block; padding: 12px 24px; background-color: #3b82f6; color: white; text-decoration: none; border-radius: 6px;">Verify Email</a>
+            <p style="margin-top: 20px; color: #666;">Or copy and paste this link:</p>
+            <p style="color: #666; word-break: break-all;">${url}</p>
+            <hr style="margin-top: 30px; border: none; border-top: 1px solid #e5e5e5;">
+            <p style="color: #999; font-size: 12px;">If you didn't create an account, you can safely ignore this email.</p>
+          </div>
+        `,
+      });
+    },
   },
   plugins: [
-    sendEmail({
-      sendVerificationEmail: async ({ user, url }) => {
+    magicLink({
+      expiresIn: 60 * 10, // 10 minutes
+      sendMagicLink: async ({ email, url }) => {
         await transporter.sendMail({
           from: `"${process.env.FROM_NAME}" <${process.env.FROM_EMAIL}>`,
-          to: user.email,
-          subject: "Verify your email address",
+          to: email,
+          subject: "Your magic sign-in link",
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <h2>Welcome to ${process.env.FROM_NAME}!</h2>
-              <p>Please verify your email address by clicking the link below:</p>
-              <a href="${url}" style="display: inline-block; padding: 12px 24px; background-color: #3b82f6; color: white; text-decoration: none; border-radius: 6px;">Verify Email</a>
+              <h2>Sign in to ${process.env.FROM_NAME}</h2>
+              <p>Click the link below to sign in to your account:</p>
+              <a href="${url}" style="display: inline-block; padding: 12px 24px; background-color: #3b82f6; color: white; text-decoration: none; border-radius: 6px;">Sign In</a>
               <p style="margin-top: 20px; color: #666;">Or copy and paste this link:</p>
               <p style="color: #666; word-break: break-all;">${url}</p>
+              <p style="margin-top: 20px; color: #666;">This link will expire in 10 minutes.</p>
               <hr style="margin-top: 30px; border: none; border-top: 1px solid #e5e5e5;">
-              <p style="color: #999; font-size: 12px;">If you didn't create an account, you can safely ignore this email.</p>
-            </div>
-          `,
-        });
-      },
-      sendResetPasswordEmail: async ({ user, url }) => {
-        await transporter.sendMail({
-          from: `"${process.env.FROM_NAME}" <${process.env.FROM_EMAIL}>`,
-          to: user.email,
-          subject: "Reset your password",
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <h2>Password Reset Request</h2>
-              <p>We received a request to reset your password. Click the link below to create a new password:</p>
-              <a href="${url}" style="display: inline-block; padding: 12px 24px; background-color: #3b82f6; color: white; text-decoration: none; border-radius: 6px;">Reset Password</a>
-              <p style="margin-top: 20px; color: #666;">Or copy and paste this link:</p>
-              <p style="color: #666; word-break: break-all;">${url}</p>
-              <p style="margin-top: 20px; color: #666;">This link will expire in 1 hour.</p>
-              <hr style="margin-top: 30px; border: none; border-top: 1px solid #e5e5e5;">
-              <p style="color: #999; font-size: 12px;">If you didn't request a password reset, you can safely ignore this email.</p>
+              <p style="color: #999; font-size: 12px;">If you didn't request this sign-in link, you can safely ignore this email.</p>
             </div>
           `,
         });
       },
     }),
   ],
-  trustedOrigins: ["http://localhost:3000"],
+  trustedOrigins: ["http://localhost:3000", "http://localhost:3001"],
 });

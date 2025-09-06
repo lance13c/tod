@@ -56,14 +56,6 @@ export default function DashboardPage() {
                     <dd className="text-gray-900">{session.user.name}</dd>
                   </div>
                 )}
-                {session.user?.username && (
-                  <div className="flex">
-                    <dt className="font-medium text-gray-500 w-32">
-                      Username:
-                    </dt>
-                    <dd className="text-gray-900">{session.user.username}</dd>
-                  </div>
-                )}
                 <div className="flex">
                   <dt className="font-medium text-gray-500 w-32">User ID:</dt>
                   <dd className="text-gray-900">{session.user?.id}</dd>
