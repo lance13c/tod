@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Adventure Mode Navigation</title>
+</head>
+<body>
+    <h1>Welcome to the Test Server</h1>
+    <p>This is a test page for Tod Adventure Mode navigation.</p>
+    
+    <nav>
+        <a href="/">Home</a> | 
+        <a href="/login">Login</a> | 
+        <a href="/dashboard">Dashboard</a>
+    </nav>
+    
+    <div id="login-form" style="margin-top: 20px;">
+        <h2>Login Form</h2>
+        <form>
+            <input type="email" name="email" placeholder="Enter your email" />
+            <input type="password" name="password" placeholder="Enter your password" />
+            <button type="submit">Sign In</button>
+        </form>
+    </div>
+    
+    <div id="content">
+        <p>Current URL: <span id="url"></span></p>
+        <p>Navigation test successful!</p>
+    </div>
+    
+    <script>
+        document.getElementById('url').textContent = window.location.href;
+    </script>
+</body>
+</html>

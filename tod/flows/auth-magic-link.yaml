@@ -1,0 +1,62 @@
+name: "Magic Link Authentication Flow"
+description: "Complete magic link authentication journey"
+environment: "local"
+
+steps:
+  - name: "Navigate to Login"
+    type: "http"
+    method: "GET"
+    url: "${BASE_URL}/login"
+    expect:
+      status: 200
+      body_contains: "Sign in"
+    
+  - name: "Request Magic Link"
+    type: "http" 
+    method: "POST"
+    url: "${BASE_URL}/auth/magic-link"
+    headers:
+      Content-Type: "application/json"
+    body:
+      email: "${TEST_EMAIL}"
+    expect:
+      status: 200
+      body_contains: "Check your email"
+    
+  - name: "Wait for Magic Link Email"
+    type: "email_wait"
+    provider: "mailhog"
+    timeout: 300
+    subject_contains: "Sign in"
+    from_contains: "noreply"
+    
+  - name: "Extract Magic Link"
+    type: "email_extract"
+    pattern: "https?://[\\w\\.-]+/auth/verify\\?token=[\\w-]+"
+    store_as: "magic_link"
+    
+  - name: "Follow Magic Link"
+    type: "http"
+    method: "GET" 
+    url: "${magic_link}"
+    expect:
+      status: 200
+      body_contains: "Welcome"
+    store_cookies: true
+    
+  - name: "Verify Authentication"
+    type: "http"
+    method: "GET"
+    url: "${BASE_URL}/dashboard"
+    use_cookies: true
+    expect:
+      status: 200
+      body_contains: "Dashboard"
+
+personalities:
+  friendly: "The authentication gate keeper greets you warmly..."
+  sarcastic: "Oh great, another magic link. How... magical."
+  professional: "Initiating authentication protocol via magic link..."
+
+success_message: "🎉 You have successfully completed the magic link authentication journey!"
+failure_message: "💥 The magic link portal has rejected your passage. Try again?"

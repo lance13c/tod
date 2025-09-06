@@ -1,0 +1,10 @@
+# Tod cache and temporary files
+cache/
+sessions/
+*.log
+*.tmp
+
+# Keep important files
+!manifest.json
+!config.yaml
+!generated/

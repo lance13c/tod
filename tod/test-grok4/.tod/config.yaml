@@ -1,0 +1,20 @@
+ai:
+    provider: xai
+    api_key: test-key
+    model: grok-4-heavy
+testing:
+    framework: playwright
+    version: latest
+    language: typescript
+    test_dir: tests/e2e
+    command: npm test
+    pattern: '*.spec.ts'
+environments:
+    development:
+        name: development
+        base_url: http://localhost:3000
+current_env: development
+meta:
+    version: 1.0.0
+    created_at: 2025-09-06T02:32:13.966493-05:00
+    updated_at: 2025-09-06T02:32:13.966846-05:00

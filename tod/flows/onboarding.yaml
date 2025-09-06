@@ -1,0 +1,87 @@
+name: "User Onboarding Journey"
+description: "Complete new user onboarding process"
+environment: "local"
+
+steps:
+  - name: "Visit Homepage"
+    type: "http"
+    method: "GET"
+    url: "${BASE_URL}"
+    expect:
+      status: 200
+      body_contains: "Get Started"
+    
+  - name: "Click Sign Up"
+    type: "http"
+    method: "GET"
+    url: "${BASE_URL}/signup"
+    expect:
+      status: 200
+      body_contains: "Create Account"
+    
+  - name: "Submit Registration"
+    type: "http"
+    method: "POST"
+    url: "${BASE_URL}/api/auth/register"
+    headers:
+      Content-Type: "application/json"
+    body:
+      email: "${TEST_EMAIL}"
+      name: "Test User"
+      company: "Test Company"
+    expect:
+      status: 201
+      body_contains: "success"
+    
+  - name: "Wait for Welcome Email"
+    type: "email_wait"
+    provider: "mailhog"
+    timeout: 60
+    subject_contains: "Welcome"
+    from_contains: "welcome"
+    
+  - name: "Extract Verification Link"
+    type: "email_extract"
+    pattern: "https?://[\\w\\.-]+/verify\\?token=[\\w-]+"
+    store_as: "verify_link"
+    
+  - name: "Verify Email"
+    type: "http"
+    method: "GET"
+    url: "${verify_link}"
+    expect:
+      status: 200
+      body_contains: "Email verified"
+    store_cookies: true
+    
+  - name: "Complete Profile"
+    type: "http"
+    method: "POST"
+    url: "${BASE_URL}/api/profile/complete"
+    headers:
+      Content-Type: "application/json"
+    body:
+      role: "developer"
+      experience: "intermediate"
+      interests: ["testing", "automation"]
+    use_cookies: true
+    expect:
+      status: 200
+      body_contains: "profile updated"
+    
+  - name: "View Dashboard"
+    type: "http"
+    method: "GET"
+    url: "${BASE_URL}/dashboard"
+    use_cookies: true
+    expect:
+      status: 200
+      body_contains: "Welcome, Test User"
+
+personalities:
+  friendly: "Welcome to your onboarding adventure! Let's get you set up..."
+  sarcastic: "Another new user, how exciting. Let's get this over with."
+  professional: "Commencing user onboarding sequence..."
+
+success_message: "🚀 Onboarding complete! You're now ready to explore the platform."
+failure_message: "❌ Onboarding failed. Don't worry, we'll figure this out together."

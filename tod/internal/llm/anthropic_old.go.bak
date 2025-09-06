@@ -1,0 +1,276 @@
+package llm
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/ciciliostudio/tif/internal/discovery"
+)
+
+// anthropicClient implements the Client interface for Anthropic Claude
+type anthropicClient struct {
+	apiKey string
+	model  string
+	// We'll add actual Anthropic SDK integration later
+}
+
+// newAnthropicClient creates a new Anthropic client
+func newAnthropicClient(apiKey string, options map[string]interface{}) (Client, error) {
+	if apiKey == "" {
+		return nil, fmt.Errorf("Anthropic API key is required")
+	}
+
+	model := "claude-3-5-sonnet-20241022"
+	if m, ok := options["model"].(string); ok && m != "" {
+		model = m
+	}
+
+	return &anthropicClient{
+		apiKey: apiKey,
+		model:  model,
+	}, nil
+}
+
+// AnalyzeCode analyzes code using Anthropic Claude
+func (c *anthropicClient) AnalyzeCode(ctx context.Context, code, filePath string) (*CodeAnalysis, error) {
+	// For now, return a mock analysis
+	// TODO: Implement actual Anthropic API integration
+	
+	analysis := &CodeAnalysis{
+		Endpoints: []EndpointInfo{
+			{
+				Path:   "/api/auth/magic-link",
+				Method: "POST",
+				Parameters: map[string]Param{
+					"email": {
+						Type:        "string",
+						Required:    true,
+						Validation:  "email format",
+						Description: "User's email address for magic link authentication",
+					},
+				},
+				Responses: map[string]interface{}{
+					"200": map[string]string{"message": "Check your email for the magic link"},
+					"400": map[string]string{"error": "Invalid email address"},
+					"429": map[string]string{"error": "Too many requests"},
+				},
+				Auth:        "none",
+				Description: "Initiates passwordless authentication via magic link",
+				LineNumber:  20,
+			},
+		},
+		AuthMethods:  []string{"magic_link", "session"},
+		Dependencies: []string{"express", "@sendgrid/mail", "jsonwebtoken"},
+		Notes:        "This endpoint implements magic link authentication with rate limiting and email validation. The magic link expires after 15 minutes.",
+		Confidence:   0.92,
+	}
+
+	return analysis, nil
+}
+
+// GenerateFlow generates a test flow using Anthropic Claude
+func (c *anthropicClient) GenerateFlow(ctx context.Context, actions []discovery.CodeAction) (*FlowSuggestion, error) {
+	// For now, return a mock flow with more detailed steps
+	// TODO: Implement actual Anthropic API integration
+	
+	flow := &FlowSuggestion{
+		Name:        "The Quest for the Magic Portal",
+		Description: "An epic journey through the mystical realms of passwordless authentication",
+		Steps: []FlowStep{
+			{
+				Name:        "Approach the Enchanted Gateway",
+				Type:        "http",
+				Action:      "get_login_page",
+				Parameters:  map[string]string{"url": "${BASE_URL}/login"},
+				Expects:     map[string]string{"status": "200", "body_contains": "Enter your email"},
+				Description: "Our intrepid adventurer approaches the mystical gateway, where ancient runes spell out 'Enter your email address'...",
+			},
+			{
+				Name:        "Invoke the Magic Link Ritual",
+				Type:        "http",
+				Action:      "post_api_auth_magic_link",
+				Parameters:  map[string]string{"email": "${TEST_EMAIL}"},
+				Expects:     map[string]string{"status": "200", "body_contains": "Check your email"},
+				Description: "With a whispered incantation and the sacred email address, our hero performs the ancient magic link ritual...",
+			},
+			{
+				Name:        "Await the Ethereal Messenger",
+				Type:        "email_wait",
+				Action:      "wait_for_magic_link_email",
+				Parameters:  map[string]string{"timeout": "300", "subject_contains": "Your magic link", "provider": "mailhog"},
+				Expects:     map[string]string{"email_received": "true"},
+				Description: "The adventurer waits patiently as ethereal messengers carry the magical portal key through the digital realm...",
+			},
+			{
+				Name:        "Extract the Glowing Portal Key",
+				Type:        "email_extract",
+				Action:      "extract_magic_link_from_email",
+				Parameters:  map[string]string{"pattern": "https?://[\\w\\.-]+/auth/verify\\?token=[\\w-]+", "store_as": "magic_portal_key"},
+				Expects:     map[string]string{"link_extracted": "true"},
+				Description: "With great care, the adventurer extracts the glowing portal key from the ethereal message, its power pulsing with authentication magic...",
+			},
+			{
+				Name:        "Cross the Magical Threshold", 
+				Type:        "http",
+				Action:      "follow_magic_link",
+				Parameters:  map[string]string{"url": "${magic_portal_key}"},
+				Expects:     map[string]string{"status": "200", "body_contains": "Welcome"},
+				Description: "The moment of truth! Our brave hero steps through the magical portal, the key dissolving into stardust as they cross the threshold...",
+			},
+			{
+				Name:        "Verify Entry to the Sacred Realm",
+				Type:        "http",
+				Action:      "verify_authenticated_access",
+				Parameters:  map[string]string{"url": "${BASE_URL}/dashboard"},
+				Expects:     map[string]string{"status": "200", "body_contains": "Dashboard"},
+				Description: "The adventure concludes successfully as our hero finds themselves in the protected realm, dashboard gleaming before them like a treasure chamber...",
+			},
+		},
+		Personality: "friendly",
+		Rationale:   "This flow provides a comprehensive test of the magic link authentication journey with rich narrative elements that make testing feel like an adventure. Each step builds upon the previous one, creating a complete user story that validates both the technical implementation and user experience.",
+	}
+
+	return flow, nil
+}
+
+// ExtractActions extracts actions from code using Anthropic Claude
+func (c *anthropicClient) ExtractActions(ctx context.Context, code, framework, language string) ([]discovery.CodeAction, error) {
+	// For now, return enhanced mock actions with better analysis
+	// TODO: Implement actual Anthropic API integration
+	
+	var actions []discovery.CodeAction
+
+	// Enhanced pattern matching with more intelligence
+	if framework == "nextjs" || framework == "express" {
+		// Check for magic link implementation
+		if containsMagicLink(code) {
+			actions = append(actions, discovery.CodeAction{
+				ID:     "post_api_auth_magic_link",
+				Path:   "/api/auth/magic-link",
+				Method: "POST",
+				Parameters: map[string]discovery.Param{
+					"email": {
+						Type:       "string", 
+						Required:   true,
+						Validation: "email format, domain whitelist check",
+					},
+				},
+				Responses: map[string]interface{}{
+					"200": map[string]string{"message": "Magic link sent successfully"},
+					"400": map[string]string{"error": "Invalid email format"},
+					"429": map[string]string{"error": "Rate limit exceeded"},
+				},
+				Auth:        "none",
+				Description: "Initiates magic link authentication flow with email validation and rate limiting",
+				LLMNotes:    "This endpoint implements secure magic link generation with JWT tokens, email validation, and rate limiting to prevent abuse. Links expire after 15 minutes for security.",
+			})
+
+			// If we detected magic link creation, likely there's also verification
+			actions = append(actions, discovery.CodeAction{
+				ID:     "get_auth_verify",
+				Path:   "/auth/verify",
+				Method: "GET",
+				Parameters: map[string]discovery.Param{
+					"token": {
+						Type:     "string",
+						Required: true,
+						Validation: "JWT format, expiration check",
+					},
+				},
+				Responses: map[string]interface{}{
+					"200": "Redirect to dashboard",
+					"400": map[string]string{"error": "Invalid or expired token"},
+				},
+				Auth:        "magic_link_token",
+				Description: "Verifies magic link token and completes authentication",
+				LLMNotes:    "This endpoint validates the magic link token, creates user session, and redirects to the authenticated area.",
+			})
+		}
+
+		// Look for dashboard/protected routes
+		if contains(code, "dashboard") || contains(code, "protected") {
+			actions = append(actions, discovery.CodeAction{
+				ID:     "get_dashboard",
+				Path:   "/dashboard",
+				Method: "GET",
+				Auth:   "session_required",
+				Description: "Protected dashboard requiring authentication",
+				LLMNotes: "Main dashboard page that requires valid user session",
+			})
+		}
+	}
+
+	return actions, nil
+}
+
+// ResearchFramework researches a framework using Anthropic Claude
+func (c *anthropicClient) ResearchFramework(ctx context.Context, frameworkName, version string) (*FrameworkResearch, error) {
+	// For now, return a mock research result
+	// TODO: Implement actual Anthropic API integration
+	
+	research := &FrameworkResearch{
+		Name:        frameworkName,
+		Version:     version,
+		DisplayName: frameworkName,
+		Language:    "javascript",
+		Confidence:  0.8,
+		Notes:       "Mock research from Anthropic client - implement actual API integration",
+	}
+	
+	// Basic framework detection
+	switch frameworkName {
+	case "playwright":
+		research.DisplayName = "Playwright"
+		research.Language = "typescript"
+		research.RunCommand = "npx playwright test"
+		research.ConfigFile = "playwright.config.ts"
+		research.TestDir = "tests"
+		research.Extensions = []string{".spec.ts", ".test.ts"}
+		research.Confidence = 0.95
+	case "cypress":
+		research.DisplayName = "Cypress"
+		research.RunCommand = "npx cypress run"
+		research.ConfigFile = "cypress.config.js"
+		research.TestDir = "cypress/e2e"
+		research.Extensions = []string{".cy.js", ".cy.ts"}
+		research.Confidence = 0.95
+	default:
+		research.RunCommand = "npm test"
+		research.TestDir = "tests"
+		research.Extensions = []string{".test.js", ".spec.js"}
+		research.Confidence = 0.5
+		research.Notes = "Unknown framework - using generic defaults"
+	}
+	
+	return research, nil
+}
+
+// TODO: Implement actual Anthropic integration
+
+/*
+func (c *anthropicClient) callAnthropic(ctx context.Context, prompt string) (string, error) {
+	// This would use the actual Anthropic SDK
+	// client := anthropic.NewClient(c.apiKey)
+	
+	// req := anthropic.MessageRequest{
+	// 	Model: c.model,
+	// 	Messages: []anthropic.Message{
+	// 		{
+	// 			Role:    "user",
+	// 			Content: prompt,
+	// 		},
+	// 	},
+	// 	MaxTokens: 4000,
+	// 	Temperature: 0.1,
+	// }
+
+	// resp, err := client.CreateMessage(ctx, req)
+	// if err != nil {
+	// 	return "", err
+	// }
+
+	// return resp.Content[0].Text, nil
+	
+	return "", fmt.Errorf("Anthropic integration not yet implemented")
+}
+*/
