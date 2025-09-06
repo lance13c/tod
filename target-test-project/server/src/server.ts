@@ -35,7 +35,11 @@ app.use(compress({ encoding: 'gzip' }))
 app.use(
   '*',
   cors({
-    origin: ['http://localhost:3000', 'http://localhost:8000'], // Specify allowed origins (update for production)
+    origin: [
+      'http://localhost:3000', 
+      'http://localhost:3001', // Next.js dev server alternate port
+      'http://localhost:8000'
+    ], // Specify allowed origins (update for production)
     credentials: true,
     maxAge: 86400, // Cache preflight for 1 day
   })

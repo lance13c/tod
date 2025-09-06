@@ -9,7 +9,11 @@ export const auth = betterAuth({
     provider: 'sqlite'
   }),
   baseURL: BETTER_AUTH_URL,
-  trustedOrigins: [APP_URL],
+  trustedOrigins: [
+    APP_URL,
+    'http://localhost:3001', // Allow Next.js on port 3001
+    'http://localhost:3000'
+  ],
   user: {
     modelName: 'users',
     additionalFields: {
@@ -89,11 +93,30 @@ export const auth = betterAuth({
   plugins: [
     magicLink({
       sendMagicLink: async ({ email, url }) => {
-        await sendEmail({
+        console.log('🔮 Sending magic link to:', email)
+        const result = await sendEmail({
           to: email,
-          subject: 'Sign in to your account',
-          text: `Click the link to sign in to your account: ${url}`,
+          subject: 'Sign in to GroupUp',
+          text: `Click the link to sign in to your account:\n\n${url}\n\nThis link will expire in 5 minutes.`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2>Sign in to GroupUp</h2>
+              <p>Click the button below to sign in to your account:</p>
+              <a href="${url}" style="display: inline-block; padding: 12px 24px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 6px; margin: 20px 0;">
+                Sign In
+              </a>
+              <p style="color: #666; font-size: 14px;">Or copy and paste this link in your browser:</p>
+              <p style="color: #666; font-size: 14px; word-break: break-all;">${url}</p>
+              <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+              <p style="color: #999; font-size: 12px;">This link will expire in 5 minutes. If you didn't request this email, you can safely ignore it.</p>
+            </div>
+          `
         })
+        console.log('📧 Magic link email result:', result)
+        if (!result?.success) {
+          console.error('Failed to send magic link email:', result?.error)
+          throw new Error('Failed to send magic link email')
+        }
       },
     }),
   ],

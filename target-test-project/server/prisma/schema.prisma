@@ -61,6 +61,18 @@ model AuthSession {
   @@map("sessions")
 }
 
+// Better Auth Verification model (for magic links, email verification, etc.)
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String   // email address or other identifier
+  token      String   @unique
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  @@map("verification")
+}
+
 // Application Session model (for document sharing sessions)
 model Session {
   id              String   @id @default(cuid())
