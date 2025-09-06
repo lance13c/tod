@@ -1,0 +1,338 @@
+package llm
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/ciciliostudio/tif/internal/discovery"
+)
+
+// openAIClient implements the Client interface for OpenAI
+type openAIClient struct {
+	apiKey string
+	model  string
+	// We'll add actual OpenAI SDK integration later
+}
+
+// newOpenAIClient creates a new OpenAI client
+func newOpenAIClient(apiKey string, options map[string]interface{}) (Client, error) {
+	if apiKey == "" {
+		return nil, fmt.Errorf("OpenAI API key is required")
+	}
+
+	model := "gpt-4"
+	if m, ok := options["model"].(string); ok && m != "" {
+		model = m
+	}
+
+	return &openAIClient{
+		apiKey: apiKey,
+		model:  model,
+	}, nil
+}
+
+// AnalyzeCode analyzes code using OpenAI
+func (c *openAIClient) AnalyzeCode(ctx context.Context, code, filePath string) (*CodeAnalysis, error) {
+	// For now, return a mock analysis with user-friendly actions
+	// TODO: Implement actual OpenAI API integration
+	
+	analysis := &CodeAnalysis{
+		Endpoints: []EndpointInfo{
+			{
+				Path:   "/api/auth/magic-link",
+				Method: "POST",
+				Parameters: map[string]Param{
+					"email": {
+						Type:        "email",
+						Required:    true,
+						Validation:  "email format",
+						Description: "User's email address for passwordless authentication",
+					},
+				},
+				Responses: map[string]interface{}{
+					"200": map[string]string{"message": "Check your email for the magic link"},
+					"400": map[string]string{"error": "Invalid email address"},
+				},
+				Auth:        "none",
+				Description: "User requests a magic link for passwordless sign-in",
+				LineNumber:  15,
+			},
+		},
+		AuthMethods:  []string{"magic_link"},
+		Dependencies: []string{"express", "nodemailer"},
+		Notes:        "This allows users to sign in without a password by clicking a link sent to their email",
+		Confidence:   0.85,
+	}
+
+	return analysis, nil
+}
+
+// GenerateFlow generates a test flow using OpenAI
+func (c *openAIClient) GenerateFlow(ctx context.Context, actions []discovery.CodeAction) (*FlowSuggestion, error) {
+	// For now, return a mock flow
+	// TODO: Implement actual OpenAI API integration
+	
+	flow := &FlowSuggestion{
+		Name:        "Magic Link Authentication Adventure",
+		Description: "A mystical journey through passwordless authentication",
+		Steps: []FlowStep{
+			{
+				Name:        "Request the Magic Portal Key",
+				Type:        "http",
+				Action:      "post_api_auth_magic_link",
+				Parameters:  map[string]string{"email": "${TEST_EMAIL}"},
+				Expects:     map[string]string{"status": "200"},
+				Description: "Our brave adventurer approaches the mystical gate and requests a magical key...",
+			},
+			{
+				Name:        "Await the Mystical Message",
+				Type:        "email_wait",
+				Action:      "wait_for_email",
+				Parameters:  map[string]string{"timeout": "300", "subject_contains": "magic"},
+				Expects:     map[string]string{"email_received": "true"},
+				Description: "The adventurer waits as magical forces deliver the portal key via ethereal message...",
+			},
+			{
+				Name:        "Extract the Portal Key",
+				Type:        "email_extract",
+				Action:      "extract_magic_link",
+				Parameters:  map[string]string{"pattern": "https?://.*verify.*"},
+				Expects:     map[string]string{"link_found": "true"},
+				Description: "With careful precision, the adventurer extracts the glowing portal key from the message...",
+			},
+			{
+				Name:        "Enter the Portal",
+				Type:        "http",
+				Action:      "get_magic_link",
+				Parameters:  map[string]string{"url": "${magic_link}"},
+				Expects:     map[string]string{"status": "200"},
+				Description: "The adventurer steps through the magical portal and enters the protected realm...",
+			},
+		},
+		Personality: "friendly",
+		Rationale:   "This flow tests the complete magic link authentication journey with a delightful adventure theme that makes testing feel like a quest.",
+	}
+
+	return flow, nil
+}
+
+// ExtractActions extracts actions from code using OpenAI
+func (c *openAIClient) ExtractActions(ctx context.Context, code, framework, language string) ([]discovery.CodeAction, error) {
+	// For now, return mock user-friendly actions
+	// TODO: Implement actual OpenAI API integration
+	
+	var actions []discovery.CodeAction
+
+	// Pattern matching for user-friendly actions
+	if framework == "nextjs" || framework == "express" {
+		if containsMagicLink(code) {
+			actions = append(actions, discovery.TestAction{
+				ID:          "sign_in_magic_link",
+				Name:        "Sign in with magic link",
+				Category:    "Authentication",
+				Type:        "form_submit",
+				Description: "Request a passwordless sign-in link via email",
+				Inputs: []discovery.UserInput{
+					{
+						Name:     "email",
+						Label:    "Email address",
+						Type:     "email",
+						Required: true,
+						Example:  "user@example.com",
+					},
+				},
+				Expects: discovery.UserExpectation{
+					Success:   "Email sent with magic link",
+					Failure:   "Invalid email or error message",
+					Validates: []string{"Email is valid", "Magic link sent"},
+				},
+				Implementation: discovery.TechnicalDetails{
+					Endpoint:   "/api/auth/magic-link",
+					Method:     "POST",
+					SourceFile: "detected from code",
+				},
+			})
+		}
+
+		if containsLogin(code) {
+			actions = append(actions, discovery.TestAction{
+				ID:          "go_to_login",
+				Name:        "Go to login page",
+				Category:    "Navigation",
+				Type:        "page_visit",
+				Description: "Navigate to the sign-in page",
+				Expects: discovery.UserExpectation{
+					Success: "Login page loads with sign-in form",
+				},
+				Implementation: discovery.TechnicalDetails{
+					Endpoint:   "/login",
+					Method:     "GET",
+					SourceFile: "detected from code",
+				},
+			})
+		}
+
+		if containsSignUp(code) {
+			actions = append(actions, discovery.TestAction{
+				ID:          "create_account",
+				Name:        "Create account",
+				Category:    "Authentication",
+				Type:        "form_submit",
+				Description: "Register for a new account",
+				Inputs: []discovery.UserInput{
+					{Name: "email", Label: "Email address", Type: "email", Required: true, Example: "user@example.com"},
+					{Name: "password", Label: "Password", Type: "password", Required: true, Example: "********"},
+					{Name: "name", Label: "Full name", Type: "text", Required: true, Example: "John Smith"},
+				},
+				Expects: discovery.UserExpectation{
+					Success:   "Account created, redirected to dashboard",
+					Failure:   "Registration error shown",
+					Validates: []string{"Account created", "User authenticated"},
+				},
+				Implementation: discovery.TechnicalDetails{
+					Endpoint:   "/api/auth/register",
+					Method:     "POST",
+					SourceFile: "detected from code",
+				},
+			})
+		}
+	}
+
+	return actions, nil
+}
+
+// ResearchFramework researches a framework using OpenAI
+func (c *openAIClient) ResearchFramework(ctx context.Context, frameworkName, version string) (*FrameworkResearch, error) {
+	// For now, return a mock research result
+	// TODO: Implement actual OpenAI API integration
+	
+	research := &FrameworkResearch{
+		Name:        frameworkName,
+		Version:     version,
+		DisplayName: frameworkName,
+		Language:    "javascript",
+		Confidence:  0.8,
+		Notes:       "Mock research from OpenAI client - implement actual API integration",
+	}
+	
+	// Basic framework detection
+	switch frameworkName {
+	case "playwright":
+		research.DisplayName = "Playwright"
+		research.Language = "typescript"
+		research.RunCommand = "npx playwright test"
+		research.ConfigFile = "playwright.config.ts"
+		research.TestDir = "tests"
+		research.Extensions = []string{".spec.ts", ".test.ts"}
+		research.Confidence = 0.95
+	case "cypress":
+		research.DisplayName = "Cypress"
+		research.RunCommand = "npx cypress run"
+		research.ConfigFile = "cypress.config.js"
+		research.TestDir = "cypress/e2e"
+		research.Extensions = []string{".cy.js", ".cy.ts"}
+		research.Confidence = 0.95
+	default:
+		research.RunCommand = "npm test"
+		research.TestDir = "tests"
+		research.Extensions = []string{".test.js", ".spec.js"}
+		research.Confidence = 0.5
+		research.Notes = "Unknown framework - using generic defaults"
+	}
+	
+	return research, nil
+}
+
+// Helper functions for pattern matching
+
+func containsMagicLink(code string) bool {
+	patterns := []string{
+		"magic-link",
+		"magic_link",
+		"magicLink",
+		"passwordless",
+		"email-auth",
+	}
+
+	for _, pattern := range patterns {
+		if contains(code, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsLogin(code string) bool {
+	patterns := []string{
+		"/login",
+		"/auth/login",
+		"login",
+		"signin",
+		"sign-in",
+	}
+
+	for _, pattern := range patterns {
+		if contains(code, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsSignUp(code string) bool {
+	patterns := []string{
+		"signup",
+		"sign-up", 
+		"register",
+		"registration",
+		"create-account",
+		"/auth/register",
+	}
+
+	for _, pattern := range patterns {
+		if contains(code, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || 
+		(len(s) > len(substr) && 
+			(contains(s[:len(s)-1], substr) || contains(s[1:], substr))))
+}
+
+// TODO: Implement actual OpenAI integration
+
+/*
+func (c *openAIClient) callOpenAI(ctx context.Context, prompt string) (string, error) {
+	// This would use the actual OpenAI SDK
+	// client := openai.NewClient(c.apiKey)
+	
+	// req := openai.ChatCompletionRequest{
+	// 	Model: c.model,
+	// 	Messages: []openai.ChatCompletionMessage{
+	// 		{
+	// 			Role:    openai.ChatMessageRoleUser,
+	// 			Content: prompt,
+	// 		},
+	// 	},
+	// 	Temperature: 0.1,
+	// }
+
+	// resp, err := client.CreateChatCompletion(ctx, req)
+	// if err != nil {
+	// 	return "", err
+	// }
+
+	// if len(resp.Choices) == 0 {
+	// 	return "", fmt.Errorf("no response from OpenAI")
+	// }
+
+	// return resp.Choices[0].Message.Content, nil
+	
+	return "", fmt.Errorf("OpenAI integration not yet implemented")
+}
+*/

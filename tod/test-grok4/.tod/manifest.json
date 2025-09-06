@@ -1,0 +1,17 @@
+{
+  "project": {
+    "name": "test-grok4",
+    "framework": "detected-by-llm",
+    "language": "typescript",
+    "root": "/Users/dominic.cicilio/Documents/repos/test-god/tod/test-grok4"
+  },
+  "actions": null,
+  "files": null,
+  "git": {
+    "tracking": true,
+    "branch": "",
+    "last_commit": ""
+  },
+  "errors": null,
+  "scanned_at": "2025-09-06T02:32:13.96744-05:00"
+}

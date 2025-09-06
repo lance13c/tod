@@ -117,3 +117,4 @@ More description text.
 - Avoid excessive hyphenation that sounds AI-generated
 - Keep bullet points concise with consistent formatting
 - Use tables with proper alignment (left for text, right for numbers)
+- avoid using emojis, you can use cool ascii codes, no emojis please
