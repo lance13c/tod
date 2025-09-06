@@ -1,20 +1,13 @@
-import { MongoClient } from 'mongodb'
 import { betterAuth } from 'better-auth'
+import { prismaAdapter } from 'better-auth/adapters/prisma'
 import { magicLink } from 'better-auth/plugins'
-import { mongodbAdapter } from 'better-auth/adapters/mongodb'
-//
+import prisma from './db.config'
 import { BETTER_AUTH_URL, APP_URL, sendEmail } from '~/libs'
 
-const mongoUri = process.env.MONGO_URI
-
-if (!mongoUri) {
-  throw new Error('Missing MONGO_URI in environment variables')
-}
-
-const mongodb = new MongoClient(mongoUri).db('betterAuth')
-
 export const auth = betterAuth({
-  database: mongodbAdapter(mongodb),
+  database: prismaAdapter(prisma, {
+    provider: 'sqlite'
+  }),
   baseURL: BETTER_AUTH_URL,
   trustedOrigins: [APP_URL],
   user: {

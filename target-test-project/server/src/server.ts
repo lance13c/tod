@@ -2,7 +2,6 @@ import '~/config/compress.config'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
-import { MongoClient } from 'mongodb'
 import { compress } from 'hono/compress'
 //
 import { Users } from '~/routes'
@@ -17,16 +16,9 @@ const app = new Hono<{
   }
 }>({ strict: false })
 
-// Declare global DB variable
-declare global {
-  var mongoDb: ReturnType<MongoClient['db']>
-}
-
-// Config MongoDB - Only connect if not in Cloudflare Workers environment
+// Initialize database connection
 if (typeof process !== 'undefined') {
-  DB().then((db) => {
-    globalThis.mongoDb = db.mongoClient.db()
-  })
+  DB().catch(console.error)
 }
 
 // Determine the environment

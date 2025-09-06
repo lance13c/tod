@@ -1,5 +1,5 @@
 import { Context } from 'hono'
-import { ObjectId } from 'mongodb'
+import prisma from '~/config/db.config'
 
 /**
  * @api {get} /users Get All Users
@@ -7,7 +7,7 @@ import { ObjectId } from 'mongodb'
  * @access Private
  */
 export const getUsers = async (c: Context) => {
-  const users = await mongoDb.collection('users').find().toArray()
+  const users = await prisma.user.findMany()
   return c.json(users)
 }
 
@@ -19,9 +19,9 @@ export const getUsers = async (c: Context) => {
 export const getUserById = async (c: Context) => {
   const id = c.req.param('id')
 
-  const user = await mongoDb
-    .collection('users')
-    .findOne({ _id: new ObjectId(id) })
+  const user = await prisma.user.findUnique({
+    where: { id }
+  })
 
   if (!user) {
     return c.json(
@@ -66,13 +66,10 @@ export const editProfile = async (c: Context) => {
   }
 
   // Update the user's profile with only the provided fields
-  const updatedProfile = await mongoDb.collection('users').updateOne(
-    { _id: new ObjectId(user.id) },
-    {
-      $set: updateFields,
-      $currentDate: { lastModified: true },
-    }
-  )
+  const updatedProfile = await prisma.user.update({
+    where: { id: user.id },
+    data: updateFields
+  })
 
   return c.json({
     success: true,
@@ -89,9 +86,9 @@ export const editProfile = async (c: Context) => {
 export const getProfile = async (c: Context) => {
   const user = c.get('user')
 
-  const profile = await mongoDb
-    .collection('users')
-    .findOne({ _id: new ObjectId(user.id) })
+  const profile = await prisma.user.findUnique({
+    where: { id: user.id }
+  })
 
   if (!profile) {
     return c.json(

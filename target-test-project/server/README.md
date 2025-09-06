@@ -1,6 +1,6 @@
-# Bun + Hono + Better Auth
+# Bun + Hono + Better Auth + Prisma
 
-A modern, high-performance API using [Bun](https://bun.sh), [Hono](https://hono.dev), [Better Auth](https://github.com/yourprofile/better-auth), and [MongoDB](https://mongodb.com) with TypeScript.
+A modern, high-performance API using [Bun](https://bun.sh), [Hono](https://hono.dev), [Better Auth](https://github.com/yourprofile/better-auth), and [Prisma](https://prisma.io) with SQLite and TypeScript.
 
 ## Features
 
@@ -13,14 +13,14 @@ A modern, high-performance API using [Bun](https://bun.sh), [Hono](https://hono.
   - Password reset flows
   - Email verification
   - Custom user fields
-- 🔌 **MongoDB integration** using both Mongoose and native MongoDB client
+- 🗄️ **SQLite database** with Prisma ORM for type-safe database access
 - 🛡️ **Role-based authorization** with admin and user roles
 - 📦 **Compression support** for optimized responses
 - ✅ **TypeScript** for type safety
 - 🔍 **Error handling** middleware
 - 🛡️ **CORS support** for secure cross-origin requests
 
-## Why Bun + Hono + Better Auth?
+## Why Bun + Hono + Better Auth + Prisma?
 
 ### Bun
 
@@ -38,9 +38,15 @@ A modern, high-performance API using [Bun](https://bun.sh), [Hono](https://hono.
 
 - **Comprehensive Authentication**: Better Auth provides a complete authentication solution, including email/password authentication, session management, and password reset flows.
 - **Customizable**: Better Auth allows for extensive customization, including custom user fields, email verification, and role-based access control.
-- **Integration**: Better Auth seamlessly integrates with MongoDB and other databases, making it easy to add authentication to any project.
+- **Integration**: Better Auth seamlessly integrates with Prisma and other databases, making it easy to add authentication to any project.
 
-Combining these three technologies provides a powerful, high-performance, and flexible foundation for building modern APIs. Whether you're building a small project or a large-scale application, Bun, Hono, and Better Auth offer the tools and features you need to succeed.
+### Prisma
+
+- **Type Safety**: Prisma provides fully type-safe database queries with excellent TypeScript support.
+- **Database Agnostic**: Easy to switch between different databases (SQLite for development, PostgreSQL for production).
+- **Migrations**: Built-in migration system for database schema management.
+
+Combining these technologies provides a powerful, high-performance, and flexible foundation for building modern APIs.
 
 ## Table of Contents
 
@@ -51,6 +57,7 @@ Combining these three technologies provides a powerful, high-performance, and fl
 - [Usage](#usage)
   - [Development](#development)
   - [Production](#production)
+- [Database Management](#database-management)
 - [Better-Auth Integration](#better-auth-integration)
   - [Authentication Flow](#authentication-flow)
   - [Configuration Options](#configuration-options)
@@ -67,7 +74,6 @@ Combining these three technologies provides a powerful, high-performance, and fl
 Before you begin, make sure you have the following installed:
 
 - [Bun](https://bun.sh) (v1.0.0 or newer)
-- [MongoDB](https://mongodb.com) or [MongoDB Atlas](https://www.mongodb.com/atlas/database)
 
 ### Installation
 
@@ -90,15 +96,36 @@ Create a `.env` file in the root directory with the following variables:
 
 ```
 PORT=8000
-MONGO_URI=mongodb://localhost:27017/betterAuth
+DATABASE_URL=file:./dev.db
 API_BASE=/api/v1
 
 # Better-Auth configuration
 BETTER_AUTH_SECRET=your_secret_key
 BETTER_AUTH_URL=http://localhost:3000
+
+# OAuth Providers (Optional)
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
 ```
 
 ## Usage
+
+### Database Setup
+
+Initialize the database and run migrations:
+
+```bash
+# Generate Prisma client
+bun run db:generate
+
+# Run migrations
+bun run db:migrate
+
+# Push schema to database (for development)
+bun run db:push
+```
 
 ### Development
 
@@ -116,9 +143,27 @@ Build and start the production server:
 bun start
 ```
 
+## Database Management
+
+This project uses Prisma with SQLite for easy development and deployment:
+
+```bash
+# Generate Prisma Client
+bun run db:generate
+
+# Create and apply migrations
+bun run db:migrate
+
+# Push schema changes directly (development)
+bun run db:push
+
+# Seed the database
+bun run db:seed
+```
+
 ## Better-Auth Integration
 
-This project showcases a seamless integration of Better-Auth with a Hono API framework, using MongoDB as the database backend.
+This project showcases a seamless integration of Better-Auth with a Hono API framework, using Prisma as the database ORM.
 
 ### Authentication Flow
 
@@ -133,9 +178,11 @@ This project showcases a seamless integration of Better-Auth with a Hono API fra
 The project demonstrates an advanced Better-Auth configuration with:
 
 ```typescript
-// Better-Auth configuration with MongoDB adapter
+// Better-Auth configuration with Prisma adapter
 export const auth = betterAuth({
-  database: mongodbAdapter(mongodb),
+  database: prismaAdapter(prisma, {
+    provider: 'sqlite'
+  }),
   user: {
     // Custom user fields including phone and isAdmin flag
     additionalFields: {
@@ -216,6 +263,8 @@ Protected routes require authentication. Include your authentication token accor
 │   │   ├── user.routes.ts   # User routes
 │   │   └── index.ts         # Route exports
 │   └── server.ts            # Main application entry
+├── prisma/
+│   └── schema.prisma        # Prisma schema definition
 ├── .env                     # Environment variables (create this)
 ├── bun.lock                 # Bun lock file
 ├── package.json             # Package configuration
