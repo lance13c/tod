@@ -64,12 +64,13 @@ model AuthSession {
 // Better Auth Verification model (for magic links, email verification, etc.)
 model Verification {
   id         String   @id @default(cuid())
-  identifier String   // email address or other identifier
-  token      String   @unique
+  identifier String   // unique identifier for the verification
+  value      String   // JSON stringified data
   expiresAt  DateTime
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   
+  @@unique([identifier])
   @@map("verification")
 }
 
