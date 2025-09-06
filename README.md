@@ -11,12 +11,21 @@ Tod is a proprietary commercial software product developed by Ciciliostudio LLC.
 ### Via Homebrew (macOS)
 
 ```bash
+# Add the Tod tap
+brew tap lance13c/tod https://github.com/lance13c/tod
+
+# Install Tod
 brew install --cask tod
+```
+
+Or install in one command:
+```bash
+brew install --cask lance13c/tod/tod
 ```
 
 ### Manual Installation
 
-Download the latest DMG from the [Releases](https://github.com/lance13c/tod-releases/releases) page.
+Download the latest DMG from the [Releases](https://github.com/lance13c/tod/releases) page.
 
 ## License
 
