@@ -1,7 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { magicLink } from "better-auth/plugins";
+import { magicLink, username } from "better-auth/plugins";
 import nodemailer from "nodemailer";
 
 const prisma = new PrismaClient();
@@ -66,6 +66,7 @@ export const auth = betterAuth({
     },
   },
   plugins: [
+    username(),
     magicLink({
       expiresIn: 60 * 10, // 10 minutes
       sendMagicLink: async ({ email, url }) => {

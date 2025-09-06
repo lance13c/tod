@@ -1,11 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
+import path from 'path';
 
 /**
  * Read environment variables from file.
  * https://github.com/motdotla/dotenv
  */
 // import dotenv from 'dotenv';
-// import path from 'path';
 // dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 /**
@@ -23,6 +23,10 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: 'html',
+  
+  /* Global setup to seed database before tests */
+  globalSetup: require.resolve('./tests/global-setup.ts'),
+  
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
@@ -34,9 +38,40 @@ export default defineConfig({
 
   /* Configure projects for major browsers */
   projects: [
+    // Tests that don't require authentication
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+    },
+    
+    // Tests for authenticated regular user
+    {
+      name: 'authenticated',
+      use: { 
+        ...devices['Desktop Chrome'],
+        storageState: 'tests/.auth/user.json',
+      },
+      dependencies: [],
+    },
+    
+    // Tests for authenticated admin
+    {
+      name: 'admin',
+      use: { 
+        ...devices['Desktop Chrome'],
+        storageState: 'tests/.auth/admin.json',
+      },
+      dependencies: [],
+    },
+    
+    // Tests for user with organizations
+    {
+      name: 'john',
+      use: { 
+        ...devices['Desktop Chrome'],
+        storageState: 'tests/.auth/john.json',
+      },
+      dependencies: [],
     },
 
     {
