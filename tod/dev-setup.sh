@@ -166,7 +166,7 @@ echo ""
 echo "🔧 Useful Commands:"
 echo "  make hotdev          # Start hot reload development"
 echo "  make dev             # Quick run without reload"
-echo "  make test-cicilio    # Test in ciciliostudio repo"
+echo "  make test-repo REPO=../my-project  # Test in specific repo"
 echo "  make help            # Show all commands"
 echo ""
 

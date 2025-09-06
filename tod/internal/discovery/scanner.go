@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ciciliostudio/tod/internal/config"
 	"github.com/ciciliostudio/tod/internal/git"
 	"github.com/ciciliostudio/tod/internal/llm"
 	"github.com/ciciliostudio/tod/internal/types"
@@ -25,6 +26,7 @@ type ScanOptions struct {
 type Scanner struct {
 	projectRoot string
 	options     ScanOptions
+	config      *config.Config
 	gitTracker  *git.Tracker
 }
 
@@ -72,12 +74,13 @@ type ScanError struct {
 }
 
 // NewScanner creates a new project scanner
-func NewScanner(projectRoot string, options ScanOptions) *Scanner {
+func NewScanner(projectRoot string, options ScanOptions, cfg *config.Config) *Scanner {
 	gitTracker, _ := git.NewTracker(projectRoot)
 	
 	return &Scanner{
 		projectRoot: projectRoot,
 		options:     options,
+		config:      cfg,
 		gitTracker:  gitTracker,
 	}
 }
@@ -104,6 +107,16 @@ func (s *Scanner) ScanProject() (*ScanResults, error) {
 	}
 
 	fmt.Printf("Analyzing %d source files with AI...\n", len(files))
+
+	// Estimate total cost for all files upfront
+	if !s.options.SkipLLM {
+		if shouldProceed, err := s.estimateTotalCostAndConfirm(files); err != nil {
+			return nil, fmt.Errorf("failed to estimate costs: %w", err)
+		} else if !shouldProceed {
+			fmt.Printf("   ⏭️  Skipping LLM analysis for all files, using fallback\n")
+			s.options.SkipLLM = true // Skip LLM for all remaining files
+		}
+	}
 
 	// Analyze files for user actions using LLM
 	var allActions []types.CodeAction
@@ -510,26 +523,12 @@ func (s *Scanner) discoverActionsWithLLM(content, filePath string, codeContext C
 	// Try to create LLM client
 	client, err := s.createLLMClient()
 	if err != nil {
-		fmt.Printf("   LLM unavailable (%v), using fallback analysis\n", err)
+		// Only show detailed error once, not for every file
+		// The error was already shown in estimateTotalCostAndConfirm
 		return s.fallbackActionDiscovery(content, filePath, codeContext)
 	}
 
-	// Estimate cost and show to user
-	estimate := client.EstimateCost("analyze_code", len(content))
-	fmt.Printf("   Estimated cost: %s (%s tokens)\n", 
-		llm.FormatCost(estimate.TotalCost),
-		llm.FormatTokens(estimate.TotalTokens))
-
-	// For small costs, proceed automatically. For larger costs, ask for confirmation
-	if estimate.TotalCost > 0.05 { // More than 5 cents
-		fmt.Printf("   Continue with LLM analysis? (y/N): ")
-		var response string
-		fmt.Scanln(&response)
-		if response != "y" && response != "Y" {
-			fmt.Printf("   ⏭️  Skipping LLM analysis, using fallback\n")
-			return s.fallbackActionDiscovery(content, filePath, codeContext)
-		}
-	}
+	// Note: Cost estimation and confirmation now happens upfront in estimateTotalCostAndConfirm
 
 	// Perform LLM analysis
 	ctx := context.Background()
@@ -685,18 +684,27 @@ func (s *Scanner) containsAuthPatterns(content string) bool {
 
 // createLLMClient creates an LLM client based on configuration
 func (s *Scanner) createLLMClient() (llm.Client, error) {
-	// For now, use OpenRouter with default settings
-	// In production, this should read from config
-	apiKey := os.Getenv("OPENROUTER_API_KEY")
+	if s.config == nil {
+		return nil, fmt.Errorf("no configuration available")
+	}
+	
+	// Use configuration settings
+	provider := llm.Provider(s.config.AI.Provider)
+	apiKey := s.config.AI.APIKey
+	
 	if apiKey == "" {
-		return nil, fmt.Errorf("OPENROUTER_API_KEY not set")
+		// Try to fallback to local analysis if API key is not configured
+		if s.config.AI.Provider == "local" {
+			return llm.NewClient(llm.Local, "", map[string]interface{}{})
+		}
+		return nil, fmt.Errorf("%s API key not configured - run 'tod init' to set up AI provider or use 'local' provider for free analysis", s.config.AI.Provider)
 	}
 	
 	options := map[string]interface{}{
-		"model": "openai/gpt-4o-mini", // Use cheaper model for code analysis
+		"model": s.config.AI.Model,
 	}
 	
-	return llm.NewClient(llm.OpenRouter, apiKey, options)
+	return llm.NewClient(provider, apiKey, options)
 }
 
 // convertAnalysisToActions converts LLM analysis results to TestActions
@@ -722,5 +730,45 @@ func (s *Scanner) convertAnalysisToActions(analysis *llm.CodeAnalysis, filePath 
 	}
 	
 	return actions
+}
+
+// estimateTotalCostAndConfirm estimates costs for all files and asks for confirmation once
+func (s *Scanner) estimateTotalCostAndConfirm(files []string) (bool, error) {
+	// Try to create LLM client
+	client, err := s.createLLMClient()
+	if err != nil {
+		fmt.Printf("   🔄 LLM unavailable (%v)\n", err)
+		fmt.Printf("   📁 Using free fallback analysis for %d files\n", len(files))
+		return false, nil // Not an error, just skip LLM
+	}
+
+	var totalTokens int64
+	var totalCost float64
+
+	// Estimate cost for each file
+	for _, file := range files {
+		// Read file to get size
+		content, err := os.ReadFile(file)
+		if err != nil {
+			continue // Skip files we can't read
+		}
+
+		estimate := client.EstimateCost("analyze_code", len(content))
+		totalTokens += estimate.TotalTokens
+		totalCost += estimate.TotalCost
+	}
+
+	// Show total estimate
+	fmt.Printf("   Total estimated cost: %s (%s tokens) for %d files\n", 
+		llm.FormatCost(totalCost),
+		llm.FormatTokens(totalTokens),
+		len(files))
+
+	// Ask for confirmation once
+	fmt.Printf("   Continue with LLM analysis for all files? (y/N): ")
+	var response string
+	fmt.Scanln(&response)
+	
+	return response == "y" || response == "Y", nil
 }
 

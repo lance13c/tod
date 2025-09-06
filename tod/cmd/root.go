@@ -3,12 +3,10 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ciciliostudio/tod/internal/config"
-	"github.com/ciciliostudio/tod/internal/ui"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var cfgFile string
@@ -40,25 +38,38 @@ func init() {
 
 	// Global flags
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is .tod/config.yaml)")
-	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
+	rootCmd.PersistentFlags().BoolP("verbose", "V", false, "verbose output")
 	rootCmd.PersistentFlags().StringP("env", "e", "", "environment to use")
 	rootCmd.PersistentFlags().StringP("project", "p", ".", "project directory")
+	rootCmd.Flags().BoolP("version", "v", false, "show version information")
 }
 
 // initConfig reads in config file and ENV variables.
 func initConfig() {
+	startTime := time.Now()
+	verbose, _ := rootCmd.PersistentFlags().GetBool("verbose")
+	
 	projectDir, _ := rootCmd.PersistentFlags().GetString("project")
 	loader := config.NewLoader(projectDir)
 	
+	if verbose {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Config loader created in %v\n", time.Since(startTime))
+	}
+	
 	// Load configuration if available
 	if loader.IsInitialized() {
+		loadStart := time.Now()
 		var err error
 		todConfig, err = loader.Load()
 		if err != nil {
-			if verbose, _ := rootCmd.PersistentFlags().GetBool("verbose"); verbose {
+			if verbose {
 				fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", err)
 			}
 		} else {
+			if verbose {
+				fmt.Fprintf(os.Stderr, "[DEBUG] Config loaded in %v\n", time.Since(loadStart))
+			}
+			
 			// Apply environment override from flag
 			if env, _ := rootCmd.PersistentFlags().GetString("env"); env != "" {
 				if _, exists := todConfig.Envs[env]; exists {
@@ -66,32 +77,28 @@ func initConfig() {
 				}
 			}
 			
-			if verbose, _ := rootCmd.PersistentFlags().GetBool("verbose"); verbose {
+			if verbose {
 				fmt.Fprintf(os.Stderr, "Using config with environment: %s\n", todConfig.Current)
 			}
 		}
 	}
 
-	// Also keep viper for backward compatibility
-	if cfgFile != "" {
-		viper.SetConfigFile(cfgFile)
-	} else {
-		viper.AddConfigPath(".tod")
-		viper.SetConfigName("config")
-		viper.SetConfigType("yaml")
-	}
-
-	viper.AutomaticEnv()
-
-	if err := viper.ReadInConfig(); err == nil {
-		if verbose, _ := rootCmd.PersistentFlags().GetBool("verbose"); verbose {
-			fmt.Fprintln(os.Stderr, "Using viper config file:", viper.ConfigFileUsed())
-		}
+	if verbose {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Total config init time: %v\n", time.Since(startTime))
 	}
 }
 
 // runTUI launches the main TUI interface
 func runTUI(cmd *cobra.Command, args []string) {
+	startTime := time.Now()
+	verbose, _ := cmd.Flags().GetBool("verbose")
+	
+	// Check for version flag
+	if showVersion, _ := cmd.Flags().GetBool("version"); showVersion {
+		fmt.Printf("Tod version %s\n", appVersion)
+		return
+	}
+
 	// Check if project is initialized
 	if todConfig == nil {
 		fmt.Println("🚨 Tod is not initialized in this project!")
@@ -99,19 +106,20 @@ func runTUI(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Initialize the main model with configuration
-	model := ui.NewModel(todConfig)
+	if verbose {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Pre-TUI checks completed in %v\n", time.Since(startTime))
+	}
 
-	// Create the program with some options
-	program := tea.NewProgram(
-		model,
-		tea.WithAltScreen(),       // Use alternate screen buffer
-		tea.WithMouseCellMotion(), // Enable mouse support
-	)
-
-	// Run the program
-	if _, err := program.Run(); err != nil {
+	// Launch TUI with lazy loading
+	tuiStart := time.Now()
+	if err := launchTUI(todConfig); err != nil {
 		fmt.Printf("Alas! There was an error: %v\n", err)
 		os.Exit(1)
 	}
+	
+	if verbose {
+		fmt.Fprintf(os.Stderr, "[DEBUG] TUI execution time: %v\n", time.Since(tuiStart))
+		fmt.Fprintf(os.Stderr, "[DEBUG] Total runtime: %v\n", time.Since(startTime))
+	}
 }
+

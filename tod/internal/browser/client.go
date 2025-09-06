@@ -15,12 +15,16 @@ import (
 
 // Client represents a headless browser automation client
 type Client struct {
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx         context.Context
+	allocCancel context.CancelFunc
+	ctxCancel   context.CancelFunc
 	
 	// Current state
 	currentURL string
 	baseURL    string
+	
+	// Page analysis
+	pageAnalyzer *PageAnalyzer
 }
 
 // PageInfo contains information about the current page
@@ -56,18 +60,17 @@ func NewClient(baseURL string) (*Client, error) {
 		chromedp.Flag("disable-web-security", true),
 	)
 	
-	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	
 	// Create a context
-	ctx, _ := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
-	
-	// Set timeout
-	ctx, _ = context.WithTimeout(ctx, 30*time.Second)
+	ctx, ctxCancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
 	
 	return &Client{
-		ctx:     ctx,
-		cancel:  cancel,
-		baseURL: baseURL,
+		ctx:          ctx,
+		allocCancel:  allocCancel,
+		ctxCancel:    ctxCancel,
+		baseURL:      baseURL,
+		pageAnalyzer: NewPageAnalyzer(ctx),
 	}, nil
 }
 
@@ -79,10 +82,14 @@ func (c *Client) NavigateToURL(urlPath string) (*PageInfo, error) {
 		return nil, fmt.Errorf("failed to resolve URL: %w", err)
 	}
 	
+	// Create timeout context for this operation (increased to 45 seconds for slow pages)
+	ctx, cancel := context.WithTimeout(c.ctx, 45*time.Second)
+	defer cancel()
+	
 	var title string
 	var currentURL string
 	
-	err = chromedp.Run(c.ctx,
+	err = chromedp.Run(ctx,
 		chromedp.Navigate(targetURL),
 		chromedp.WaitVisible("body", chromedp.ByQuery),
 		chromedp.Location(&currentURL),
@@ -112,10 +119,14 @@ func (c *Client) GetCurrentPage() (*PageInfo, error) {
 		}, nil
 	}
 	
+	// Create timeout context for this operation
+	ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
+	defer cancel()
+	
 	var title string
 	var currentURL string
 	
-	err := chromedp.Run(c.ctx,
+	err := chromedp.Run(ctx,
 		chromedp.Location(&currentURL),
 		chromedp.Title(&title),
 	)
@@ -133,6 +144,10 @@ func (c *Client) GetCurrentPage() (*PageInfo, error) {
 
 // ClickElement clicks on an element by selector
 func (c *Client) ClickElement(selector string) error {
+	// Create timeout context for this operation
+	ctx, cancel := context.WithTimeout(c.ctx, 15*time.Second)
+	defer cancel()
+	
 	// Try multiple selector strategies
 	selectors := strings.Split(selector, ", ")
 	
@@ -144,7 +159,7 @@ func (c *Client) ClickElement(selector string) error {
 			continue
 		}
 		
-		err := chromedp.Run(c.ctx,
+		err := chromedp.Run(ctx,
 			chromedp.WaitVisible(sel, chromedp.ByQuery),
 			chromedp.Click(sel, chromedp.ByQuery),
 		)
@@ -159,6 +174,10 @@ func (c *Client) ClickElement(selector string) error {
 
 // FillField fills a form field with a value
 func (c *Client) FillField(selector, value string) error {
+	// Create timeout context for this operation
+	ctx, cancel := context.WithTimeout(c.ctx, 15*time.Second)
+	defer cancel()
+	
 	// Try multiple selector strategies
 	selectors := strings.Split(selector, ", ")
 	
@@ -170,7 +189,7 @@ func (c *Client) FillField(selector, value string) error {
 			continue
 		}
 		
-		err := chromedp.Run(c.ctx,
+		err := chromedp.Run(ctx,
 			chromedp.WaitVisible(sel, chromedp.ByQuery),
 			chromedp.Clear(sel, chromedp.ByQuery),
 			chromedp.SendKeys(sel, value, chromedp.ByQuery),
@@ -186,8 +205,12 @@ func (c *Client) FillField(selector, value string) error {
 
 // CaptureScreenshot captures a screenshot of the current viewport
 func (c *Client) CaptureScreenshot() ([]byte, error) {
+	// Create timeout context for this operation
+	ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
+	defer cancel()
+	
 	var buf []byte
-	err := chromedp.Run(c.ctx,
+	err := chromedp.Run(ctx,
 		chromedp.CaptureScreenshot(&buf),
 	)
 	if err != nil {
@@ -198,8 +221,12 @@ func (c *Client) CaptureScreenshot() ([]byte, error) {
 
 // CaptureFullPageScreenshot captures a screenshot of the entire page
 func (c *Client) CaptureFullPageScreenshot() ([]byte, error) {
+	// Create timeout context for this operation
+	ctx, cancel := context.WithTimeout(c.ctx, 15*time.Second)
+	defer cancel()
+	
 	var buf []byte
-	err := chromedp.Run(c.ctx,
+	err := chromedp.Run(ctx,
 		chromedp.FullScreenshot(&buf, 90),
 	)
 	if err != nil {
@@ -210,8 +237,12 @@ func (c *Client) CaptureFullPageScreenshot() ([]byte, error) {
 
 // CaptureElementScreenshot captures a screenshot of a specific element
 func (c *Client) CaptureElementScreenshot(selector string) ([]byte, error) {
+	// Create timeout context for this operation
+	ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
+	defer cancel()
+	
 	var buf []byte
-	err := chromedp.Run(c.ctx,
+	err := chromedp.Run(ctx,
 		chromedp.Screenshot(selector, &buf, chromedp.NodeVisible),
 	)
 	if err != nil {
@@ -220,10 +251,41 @@ func (c *Client) CaptureElementScreenshot(selector string) ([]byte, error) {
 	return buf, nil
 }
 
+// GetPageActions discovers all interactive actions on the current page
+func (c *Client) GetPageActions() ([]PageAction, error) {
+	// Create timeout context for this operation
+	ctx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
+	defer cancel()
+	
+	// Update page analyzer with new context
+	analyzer := NewPageAnalyzer(ctx)
+	
+	// Wait for page to be fully loaded
+	if err := analyzer.WaitForPageLoad(); err != nil {
+		return nil, fmt.Errorf("failed to wait for page load: %w", err)
+	}
+	
+	// Discover actions
+	actions, err := analyzer.DiscoverActions()
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover page actions: %w", err)
+	}
+	
+	return actions, nil
+}
+
+// RefreshPageActions forces a refresh of the page actions
+func (c *Client) RefreshPageActions() ([]PageAction, error) {
+	return c.GetPageActions()
+}
+
 // Close closes the browser client and releases resources
 func (c *Client) Close() error {
-	if c.cancel != nil {
-		c.cancel()
+	if c.ctxCancel != nil {
+		c.ctxCancel()
+	}
+	if c.allocCancel != nil {
+		c.allocCancel()
 	}
 	return nil
 }

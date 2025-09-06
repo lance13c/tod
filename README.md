@@ -1,12 +1,12 @@
-# Meet Your Webdev Test God - Tod
+# Meet Tod Your Webdev Test God
 
 Tod is a text-adventure style E2E testing tool that makes web testing interactive and fun. Navigate your web applications like a text adventure game, with natural language commands and AI-powered assistance.
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Go 1.21+ 
-- For hot reload development: `go install github.com/cosmtrek/air@latest`
+- Go 1.24 (exact version required)
+- For hot reload development: `go install github.com/air-verse/air@latest`
 
 ### Development Setup
 
@@ -16,10 +16,7 @@ cd tod
 # Start hot reload development (auto-rebuilds as toddev)
 make hotdev
 
-# In another terminal, test in a different repo
-make test-cicilio
-
-# Or test in any repo
+# In another terminal, test in any repo
 make test-repo REPO=../my-project
 ```
 
@@ -71,7 +68,6 @@ Navigate with natural language:
 make hotdev                    # Start air with auto-rebuild
 
 # 🧪 Testing  
-make test-cicilio             # Test in ../ciciliostudio
 make test-repo REPO=../myapp  # Test in specific repo
 ./dev-test.sh ../my-project   # Direct script usage
 

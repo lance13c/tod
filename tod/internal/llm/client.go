@@ -27,6 +27,7 @@ type Client interface {
 	ExtractActions(ctx context.Context, code, framework, language string) ([]types.CodeAction, error)
 	ResearchFramework(ctx context.Context, frameworkName, version string) (*FrameworkResearch, error)
 	InterpretCommand(ctx context.Context, command string, availableActions []types.CodeAction) (*CommandInterpretation, error)
+	InterpretCommandWithContext(ctx context.Context, command string, availableActions []types.CodeAction, conversation *ConversationContext) (*CommandInterpretation, error)
 	AnalyzeScreenshot(ctx context.Context, screenshot []byte, prompt string) (*ScreenshotAnalysis, error)
 	GetLastUsage() *UsageStats
 	EstimateCost(operation string, inputSize int) *UsageStats
@@ -117,6 +118,19 @@ type MessageContent struct {
 	Text      string `json:"text,omitempty"`
 	ImageData string `json:"image_data,omitempty"` // base64 encoded image
 	MediaType string `json:"media_type,omitempty"` // "image/jpeg", "image/png", etc.
+}
+
+// ConversationMessage represents a message in a conversation thread
+type ConversationMessage struct {
+	Role    string `json:"role"`    // "user", "assistant", or "system"
+	Content string `json:"content"` // The message content
+}
+
+// ConversationContext contains conversation history and metadata for LLM calls
+type ConversationContext struct {
+	SessionID string                `json:"session_id"`          // Unique session identifier
+	Messages  []ConversationMessage `json:"messages"`            // Conversation history
+	MaxTokens int                   `json:"max_tokens,omitempty"` // Optional token limit
 }
 
 // ScreenshotAnalysis represents the result of analyzing a screenshot

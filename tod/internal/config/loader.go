@@ -4,10 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
-	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
 
@@ -113,39 +111,35 @@ func (l *Loader) loadFromFile(configPath string) (*Config, error) {
 
 // applyEnvOverrides applies environment variable overrides to the config
 func (l *Loader) applyEnvOverrides(config *Config) error {
-	// Set up viper to handle environment variables
-	v := viper.New()
-	v.SetEnvPrefix("TOD")
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
-	v.AutomaticEnv()
+	// Native environment variable handling (faster than viper)
 	
 	// AI configuration overrides
-	if apiKey := v.GetString("ai.api_key"); apiKey != "" {
+	if apiKey := os.Getenv("TOD_AI_API_KEY"); apiKey != "" {
 		config.AI.APIKey = apiKey
 	}
-	if provider := v.GetString("ai.provider"); provider != "" {
+	if provider := os.Getenv("TOD_AI_PROVIDER"); provider != "" {
 		config.AI.Provider = provider
 	}
-	if model := v.GetString("ai.model"); model != "" {
+	if model := os.Getenv("TOD_AI_MODEL"); model != "" {
 		config.AI.Model = model
 	}
-	if endpoint := v.GetString("ai.endpoint"); endpoint != "" {
+	if endpoint := os.Getenv("TOD_AI_ENDPOINT"); endpoint != "" {
 		config.AI.Endpoint = endpoint
 	}
 	
 	// Testing configuration overrides
-	if framework := v.GetString("testing.framework"); framework != "" {
+	if framework := os.Getenv("TOD_TESTING_FRAMEWORK"); framework != "" {
 		config.Testing.Framework = framework
 	}
-	if version := v.GetString("testing.version"); version != "" {
+	if version := os.Getenv("TOD_TESTING_VERSION"); version != "" {
 		config.Testing.Version = version
 	}
-	if testDir := v.GetString("testing.test_dir"); testDir != "" {
+	if testDir := os.Getenv("TOD_TESTING_TEST_DIR"); testDir != "" {
 		config.Testing.TestDir = testDir
 	}
 	
 	// Current environment override
-	if currentEnv := v.GetString("current_env"); currentEnv != "" {
+	if currentEnv := os.Getenv("TOD_CURRENT_ENV"); currentEnv != "" {
 		config.Current = currentEnv
 	}
 	

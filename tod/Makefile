@@ -1,4 +1,4 @@
-.PHONY: dev hotdev build build-dev test install clean deps help test-repo test-cicilio install-dev
+.PHONY: dev hotdev build build-dev test install clean deps help test-repo install-dev
 
 # Development with hot reload (builds as toddev)
 hotdev: deps
@@ -21,7 +21,7 @@ watch: deps
 	@echo "🔄 Press Ctrl+C to stop"
 	@while true; do \
 		echo "🔨 Building toddev..."; \
-		go build -o toddev . && echo "✅ Built toddev - running..."; \
+		go build -ldflags="-s -w -X main.version=dev" -trimpath -o toddev . && echo "✅ Built toddev - running..."; \
 		./toddev & \
 		PID=$$!; \
 		inotifywait -q -r -e modify --exclude='\.git|\.tod|dist|tmp|toddev$$' . 2>/dev/null || fswatch -o --exclude='\.git|\.tod|dist|tmp|toddev$$' . | head -1 >/dev/null 2>&1; \
@@ -35,13 +35,13 @@ watch: deps
 dev: deps
 	go run .
 
-# Build the production binary
+# Build the production binary (optimized for size and speed)
 build: deps
-	go build -o tod .
+	go build -ldflags="-s -w -X main.version=0.0.1" -trimpath -o tod .
 
-# Build development binary (toddev)
+# Build development binary (toddev) with optimization
 build-dev: deps
-	go build -o toddev .
+	go build -ldflags="-s -w -X main.version=dev" -trimpath -o toddev .
 
 # Run tests
 test:
@@ -99,17 +99,6 @@ test-repo: build-dev
 	cd $(REPO) && $(PWD)/tmp/toddev init --non-interactive
 	cd $(REPO) && $(PWD)/tmp/toddev
 
-# Quick test in ciciliostudio
-test-cicilio: build-dev
-	@echo "🧪 Testing toddev in ../ciciliostudio..."
-	@mkdir -p tmp
-	@cp toddev tmp/
-	@if [ ! -d "../ciciliostudio" ]; then \
-		echo "❌ ../ciciliostudio directory not found"; \
-		exit 1; \
-	fi
-	cd ../ciciliostudio && ../test-god/tod/tmp/toddev init --non-interactive
-	cd ../ciciliostudio && ../test-god/tod/tmp/toddev
 
 # Clean build artifacts
 clean:
@@ -128,15 +117,15 @@ dev-race: deps
 
 # Build for multiple platforms
 build-all: deps
-	GOOS=darwin GOARCH=amd64 go build -o dist/tod-darwin-amd64 .
-	GOOS=darwin GOARCH=arm64 go build -o dist/tod-darwin-arm64 .
-	GOOS=linux GOARCH=amd64 go build -o dist/tod-linux-amd64 .
-	GOOS=windows GOARCH=amd64 go build -o dist/tod-windows-amd64.exe .
+	GOOS=darwin GOARCH=amd64 go build -ldflags="-X main.version=0.0.1" -o dist/tod-darwin-amd64 .
+	GOOS=darwin GOARCH=arm64 go build -ldflags="-X main.version=0.0.1" -o dist/tod-darwin-arm64 .
+	GOOS=linux GOARCH=amd64 go build -ldflags="-X main.version=0.0.1" -o dist/tod-linux-amd64 .
+	GOOS=windows GOARCH=amd64 go build -ldflags="-X main.version=0.0.1" -o dist/tod-windows-amd64.exe .
 
 # Build universal binary for macOS
 build-universal: deps dist
-	GOOS=darwin GOARCH=amd64 go build -o dist/tod-darwin-amd64 .
-	GOOS=darwin GOARCH=arm64 go build -o dist/tod-darwin-arm64 .
+	GOOS=darwin GOARCH=amd64 go build -ldflags="-X main.version=0.0.1" -o dist/tod-darwin-amd64 .
+	GOOS=darwin GOARCH=arm64 go build -ldflags="-X main.version=0.0.1" -o dist/tod-darwin-arm64 .
 	lipo -create -output dist/tod dist/tod-darwin-amd64 dist/tod-darwin-arm64
 	rm dist/tod-darwin-amd64 dist/tod-darwin-arm64
 
@@ -256,7 +245,6 @@ help:
 	@echo "  update-dev      - Update global toddev with latest changes"
 	@echo ""
 	@echo "🧪 Testing:"
-	@echo "  test-cicilio    - Test toddev in ../ciciliostudio"
 	@echo "  test-repo       - Test in specific repo (REPO=path)"
 	@echo "  test            - Run Go tests"
 	@echo ""
@@ -277,5 +265,4 @@ help:
 	@echo ""
 	@echo "💡 Examples:"
 	@echo "  make hotdev                    # Start hot reload dev"
-	@echo "  make test-cicilio             # Test in ciciliostudio repo"
 	@echo "  make test-repo REPO=../myapp  # Test in specific repo"

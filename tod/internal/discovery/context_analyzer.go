@@ -7,7 +7,7 @@ import (
 
 // ContextAnalyzer extracts meaningful context from source code
 type ContextAnalyzer struct {
-	// Regex patterns for extracting different types of context
+	// Cached compiled regex patterns for performance
 	commentPattern     *regexp.Regexp
 	functionPattern    *regexp.Regexp
 	validationPattern  *regexp.Regexp
@@ -15,11 +15,30 @@ type ContextAnalyzer struct {
 	formFieldPattern   *regexp.Regexp
 	buttonTextPattern  *regexp.Regexp
 	routePattern       *regexp.Regexp
+	
+	// Additional cached patterns for frequently used operations
+	htmlFieldPattern   *regexp.Regexp
+	jsxFieldPattern    *regexp.Regexp
+	buttonPattern      *regexp.Regexp
+	stringPattern      *regexp.Regexp
+	
+	// Pattern caches for dynamic patterns
+	validationPatterns []string
+	responsePatterns   []string
+	textPatterns       []string
+	userMessagePatterns []string
+	schemaPatterns     []string
+	compiledValidationPatterns []regexp.Regexp
+	compiledResponsePatterns   []regexp.Regexp
+	compiledTextPatterns       []regexp.Regexp
+	compiledUserMsgPatterns    []regexp.Regexp
+	compiledSchemaPatterns     []regexp.Regexp
 }
 
-// NewContextAnalyzer creates a new context analyzer
+// NewContextAnalyzer creates a new context analyzer with pre-compiled patterns
 func NewContextAnalyzer() *ContextAnalyzer {
-	return &ContextAnalyzer{
+	ca := &ContextAnalyzer{
+		// Core patterns
 		commentPattern:     regexp.MustCompile(`(?m)^\s*//\s*(.+)$|/\*\s*(.+?)\s*\*/`),
 		functionPattern:    regexp.MustCompile(`function\s+(\w+)|const\s+(\w+)\s*=|(\w+)\s*:\s*\(`),
 		validationPattern:  regexp.MustCompile(`\.required\(\)|\.min\(|\.max\(|\.email\(\)|\.matches\(|validate\w*|joi\.|yup\.|z\.|schema`),
@@ -27,6 +46,87 @@ func NewContextAnalyzer() *ContextAnalyzer {
 		formFieldPattern:   regexp.MustCompile(`name=["'](\w+)["']|input\s+.*name|<input|<select|<textarea`),
 		buttonTextPattern:  regexp.MustCompile(`<button[^>]*>([^<]+)</button>|button.*text.*["']([^"']+)["']`),
 		routePattern:       regexp.MustCompile(`app\.(get|post|put|delete|patch)\s*\(\s*["']([^"']+)["']|router\.(get|post|put|delete|patch)`),
+		
+		// Additional frequently used patterns
+		htmlFieldPattern: regexp.MustCompile(`(?i)<(?:input|select|textarea)[^>]*name=["']([^"']+)["'][^>]*>`),
+		jsxFieldPattern:  regexp.MustCompile(`(?i)name=["']([^"']+)["']|<(?:input|Input)[^>]*`),
+		buttonPattern:    regexp.MustCompile(`(?i)<button[^>]*>([^<]+)</button>`),
+		stringPattern:    regexp.MustCompile(`["']([^"']{10,}?)["']`), // Strings with 10+ chars
+	}
+	
+	// Pre-compile dynamic patterns
+	ca.initDynamicPatterns()
+	return ca
+}
+
+// initDynamicPatterns pre-compiles all the dynamic patterns used in analysis
+func (ca *ContextAnalyzer) initDynamicPatterns() {
+	// Validation patterns
+	ca.validationPatterns = []string{
+		`\.required\(\)`,
+		`\.email\(\)`,
+		`\.min\(\d+\)`,
+		`\.max\(\d+\)`,
+		`joi\.`,
+		`yup\.`,
+		`z\.`,
+	}
+	ca.compiledValidationPatterns = make([]regexp.Regexp, len(ca.validationPatterns))
+	for i, pattern := range ca.validationPatterns {
+		ca.compiledValidationPatterns[i] = *regexp.MustCompile(pattern)
+	}
+	
+	// Response patterns
+	ca.responsePatterns = []string{
+		`res\.status\(\d+\)\.json\([^)]+\)`,
+		`res\.json\([^)]+\)`,
+		`return\s+\{[^}]*message[^}]*\}`,
+		`throw\s+new\s+Error\([^)]+\)`,
+		`status:\s*\d+`,
+		`message:\s*["'][^"']*["']`,
+	}
+	ca.compiledResponsePatterns = make([]regexp.Regexp, len(ca.responsePatterns))
+	for i, pattern := range ca.responsePatterns {
+		ca.compiledResponsePatterns[i] = *regexp.MustCompile(pattern)
+	}
+	
+	// Text patterns
+	ca.textPatterns = []string{
+		`<button[^>]*>([^<]+)</button>`,
+		`placeholder\s*[:=]\s*["']([^"']+)["']`,
+		`title\s*[:=]\s*["']([^"']+)["']`,
+		`submitText\s*[:=]\s*["']([^"']+)["']`,
+		`label\s*[:=]\s*["']([^"']+)["']`,
+	}
+	ca.compiledTextPatterns = make([]regexp.Regexp, len(ca.textPatterns))
+	for i, pattern := range ca.textPatterns {
+		ca.compiledTextPatterns[i] = *regexp.MustCompile(pattern)
+	}
+	
+	// User message patterns
+	ca.userMessagePatterns = []string{
+		`["'][^"']*error[^"']*["']`,
+		`["'][^"']*success[^"']*["']`,
+		`["'][^"']*invalid[^"']*["']`,
+		`["'][^"']*required[^"']*["']`,
+		`["'][^"']*must be[^"']*["']`,
+		`["'][^"']*please[^"']*["']`,
+	}
+	ca.compiledUserMsgPatterns = make([]regexp.Regexp, len(ca.userMessagePatterns))
+	for i, pattern := range ca.userMessagePatterns {
+		ca.compiledUserMsgPatterns[i] = *regexp.MustCompile(`(?i)` + pattern)
+	}
+	
+	// Schema patterns
+	ca.schemaPatterns = []string{
+		`(\w+):\s*joi\.\w+`,
+		`(\w+):\s*yup\.\w+`,
+		`(\w+):\s*z\.\w+`,
+		`(\w+):\s*schema\.\w+`,
+	}
+	ca.compiledSchemaPatterns = make([]regexp.Regexp, len(ca.schemaPatterns))
+	for i, pattern := range ca.schemaPatterns {
+		ca.compiledSchemaPatterns[i] = *regexp.MustCompile(pattern)
 	}
 }
 
@@ -133,21 +233,8 @@ func (ca *ContextAnalyzer) looksLikeFunctionStart(line string) bool {
 func (ca *ContextAnalyzer) extractValidationRules(code string) []string {
 	var rules []string
 	
-	// Look for common validation patterns
-	validationPatterns := []string{
-		`\.required\(\)`,
-		`\.email\(\)`,
-		`\.min\(\d+\)`,
-		`\.max\(\d+\)`,
-		`validate\w+`,
-		`schema\.`,
-		`joi\.`,
-		`yup\.`,
-		`z\.`,
-	}
-	
-	for _, pattern := range validationPatterns {
-		re := regexp.MustCompile(pattern)
+	// Use pre-compiled patterns for performance
+	for _, re := range ca.compiledValidationPatterns {
 		matches := re.FindAllString(code, -1)
 		for _, match := range matches {
 			rules = append(rules, strings.TrimSpace(match))
@@ -165,18 +252,8 @@ func (ca *ContextAnalyzer) extractValidationRules(code string) []string {
 func (ca *ContextAnalyzer) extractResponseMessages(code string) []string {
 	var messages []string
 	
-	// Look for response patterns
-	responsePatterns := []string{
-		`res\.status\(\d+\)\.json\([^)]+\)`,
-		`res\.json\([^)]+\)`,
-		`return\s+\{[^}]*message[^}]*\}`,
-		`throw\s+new\s+Error\([^)]+\)`,
-		`status:\s*\d+`,
-		`message:\s*["'][^"']*["']`,
-	}
-	
-	for _, pattern := range responsePatterns {
-		re := regexp.MustCompile(pattern)
+	// Use pre-compiled patterns for performance
+	for _, re := range ca.compiledResponsePatterns {
 		matches := re.FindAllString(code, -1)
 		for _, match := range matches {
 			messages = append(messages, strings.TrimSpace(match))

@@ -9,9 +9,10 @@ import (
 
 // anthropicClientSimple is a simplified implementation that delegates to mock
 type anthropicClientSimple struct {
-	apiKey string
-	model  string
-	mock   *mockClient
+	apiKey   string
+	model    string
+	mock     *mockClient
+	costCalc *CostCalculator
 }
 
 // newAnthropicClient creates a new simplified Anthropic client
@@ -28,9 +29,10 @@ func newAnthropicClient(apiKey string, options map[string]interface{}) (Client, 
 	mockClient := &mockClient{}
 
 	return &anthropicClientSimple{
-		apiKey: apiKey,
-		model:  model,
-		mock:   mockClient,
+		apiKey:   apiKey,
+		model:    model,
+		mock:     mockClient,
+		costCalc: NewCostCalculator(),
 	}, nil
 }
 
@@ -93,7 +95,28 @@ func (c *anthropicClientSimple) AnalyzeScreenshot(ctx context.Context, screensho
 	return c.mock.AnalyzeScreenshot(ctx, screenshot, prompt)
 }
 
+// InterpretCommandWithContext implements the Client interface using the mock client with enhanced context
+func (c *anthropicClientSimple) InterpretCommandWithContext(ctx context.Context, command string, availableActions []types.CodeAction, conversation *ConversationContext) (*CommandInterpretation, error) {
+	// Use the mock implementation with conversation context
+	interpretation, err := c.mock.InterpretCommandWithContext(ctx, command, availableActions, conversation)
+	if err != nil {
+		return nil, err
+	}
+
+	// Enhance for Anthropic with better conversation understanding
+	interpretation.Confidence = interpretation.Confidence * 1.15 // Higher boost for context-aware
+	if interpretation.Confidence > 1.0 {
+		interpretation.Confidence = 1.0
+	}
+
+	return interpretation, nil
+}
+
 // EstimateCost implements the Client interface
 func (c *anthropicClientSimple) EstimateCost(operation string, inputSize int) *UsageStats {
-	return c.mock.EstimateCost(operation, inputSize)
+	// Get token estimates from mock (for token calculation logic)
+	mockEstimate := c.mock.EstimateCost(operation, inputSize)
+	
+	// Use real cost calculator with provider and model
+	return c.costCalc.EstimateCost("anthropic", c.model, mockEstimate.InputTokens, mockEstimate.OutputTokens)
 }

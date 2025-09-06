@@ -37,7 +37,7 @@ func NewFlowAgent(cfg *config.Config, projectRoot string) (*DefaultFlowAgent, er
 		Framework: cfg.Testing.Framework,
 		Language:  cfg.Testing.Language,
 		SkipLLM:   false,
-	})
+	}, cfg)
 
 	// Load user config
 	userLoader := config.NewTestUserLoader(projectRoot)

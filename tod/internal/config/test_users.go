@@ -47,6 +47,10 @@ type TestUserAuthConfig struct {
 	EmailEndpoint string `yaml:"email_endpoint,omitempty"`
 	LastMagicLink string `yaml:"last_magic_link,omitempty"`
 
+	// Email checking (automatic verification code/magic link extraction)
+	EmailCheckEnabled bool   `yaml:"email_check_enabled,omitempty"`
+	EmailTimeout      int    `yaml:"email_timeout,omitempty"` // Timeout in seconds (default: 30)
+
 	// Username/password form
 	LoginFormURL  string `yaml:"login_form_url,omitempty"`
 	UsernameField string `yaml:"username_field,omitempty"`
@@ -236,12 +240,17 @@ func (l *TestUserLoader) getDefaultTemplates() map[string]TestUserTemplate {
 	// Magic link user template  
 	templates["magic_link_user"] = TestUserTemplate{
 		Name:        "Magic Link User",
-		Description: "User for magic link authentication testing",
+		Description: "User for magic link authentication testing with automatic email checking",
 		AuthType:    "magic_link",
 		Role:        "user",
 		Fields: []TestUserField{
 			{Name: "name", Label: "Full Name", Type: "text", Required: true, Default: "Magic Link User"},
 			{Name: "email", Label: "Email", Type: "email", Required: true, Placeholder: "magic@example.com"},
+			{Name: "email_check_enabled", Label: "Enable Email Checking", Type: "boolean", Required: false, Default: "true"},
+		},
+		Defaults: map[string]interface{}{
+			"email_check_enabled": true,
+			"email_timeout":      30,
 		},
 	}
 

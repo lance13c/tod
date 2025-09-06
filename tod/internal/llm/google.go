@@ -9,9 +9,10 @@ import (
 
 // googleClientSimple is a simplified implementation that delegates to mock
 type googleClientSimple struct {
-	apiKey string
-	model  string
-	mock   *mockClient
+	apiKey   string
+	model    string
+	mock     *mockClient
+	costCalc *CostCalculator
 }
 
 // newGoogleClient creates a new simplified Google client
@@ -28,9 +29,10 @@ func newGoogleClient(apiKey string, options map[string]interface{}) (Client, err
 	mockClient := &mockClient{}
 
 	return &googleClientSimple{
-		apiKey: apiKey,
-		model:  model,
-		mock:   mockClient,
+		apiKey:   apiKey,
+		model:    model,
+		mock:     mockClient,
+		costCalc: NewCostCalculator(),
 	}, nil
 }
 
@@ -93,7 +95,17 @@ func (c *googleClientSimple) GetLastUsage() *UsageStats {
 	return c.mock.GetLastUsage()
 }
 
+// InterpretCommandWithContext implements the Client interface
+func (c *googleClientSimple) InterpretCommandWithContext(ctx context.Context, command string, availableActions []types.CodeAction, conversation *ConversationContext) (*CommandInterpretation, error) {
+	// Delegate to regular interpret command - simple client doesn't need conversation context
+	return c.InterpretCommand(ctx, command, availableActions)
+}
+
 // EstimateCost implements the Client interface
 func (c *googleClientSimple) EstimateCost(operation string, inputSize int) *UsageStats {
-	return c.mock.EstimateCost(operation, inputSize)
+	// Get token estimates from mock (for token calculation logic)
+	mockEstimate := c.mock.EstimateCost(operation, inputSize)
+	
+	// Use real cost calculator with provider and model
+	return c.costCalc.EstimateCost("google", c.model, mockEstimate.InputTokens, mockEstimate.OutputTokens)
 }
