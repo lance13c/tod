@@ -19,6 +19,8 @@ model User {
   updatedAt DateTime @updatedAt
   sessions  Session[]
   accounts  Account[]
+  organizations OrganizationMember[]
+  ownedOrganizations Organization[]
 }
 
 model Session {
@@ -61,4 +63,55 @@ model Verification {
   updatedAt  DateTime @updatedAt
 
   @@unique([identifier, value])
+}
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  website     String?
+  logo        String?
+  isPublic    Boolean  @default(false)
+  industry    String?
+  size        String?  // "1-10", "11-50", "51-200", "201-500", "500+"
+  founded     String?
+  location    String?
+  email       String?
+  twitter     String?
+  linkedin    String?
+  github      String?
+  
+  // SEO & Discovery
+  tags        String?  // Comma-separated tags for discovery
+  featured    Boolean  @default(false)
+  verified    Boolean  @default(false)
+  
+  // Stats
+  viewCount   Int      @default(0)
+  
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  members     OrganizationMember[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  role           String       @default("member") // "owner", "admin", "member"
+  title          String?      // Job title
+  department     String?
+  
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  joinedAt       DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  
+  @@unique([userId, organizationId])
 }
