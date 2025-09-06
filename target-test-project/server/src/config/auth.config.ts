@@ -16,7 +16,6 @@ export const auth = betterAuth({
     'http://localhost:3000'
   ],
   user: {
-    modelName: 'users',
     additionalFields: {
       phone: { type: 'string', nullable: true, returned: true },
       isAdmin: { type: 'boolean', default: false, returned: true },
@@ -33,9 +32,8 @@ export const auth = betterAuth({
       },
     },
   },
-  session: { modelName: 'sessions' },
+  session: { },
   account: {
-    modelName: 'accounts',
     accountLinking: {
       enabled: true,
       trustedProviders: ['github', 'google', 'email-password'],

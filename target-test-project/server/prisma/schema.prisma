@@ -10,26 +10,26 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
+model user {
+  id            String        @id @default(cuid())
+  email         String        @unique
   name          String?
   image         String?
   phone         String?
-  isAdmin       Boolean   @default(false)
-  emailVerified DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  
-  sessions      Session[]
+  isAdmin       Boolean       @default(false)
+  emailVerified Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  createdAppSessions   AppSession[] @relation("AppSessionCreator")
+  appSessions          AppSession[] @relation("AppSessionUser")
   documents     Document[]
   participants  Participant[]
-  accounts      Account[]
+  accounts      account[]
   // Better Auth related
-  authSessions  AuthSession[]
+  authSessions  session[]
 }
 
-model Account {
+model account {
   id                String  @id @default(cuid())
   userId            String
   type              String
@@ -42,70 +42,75 @@ model Account {
   scope             String?
   id_token          String?
   session_state     String?
-  
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  user              user    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([provider, providerAccountId])
 }
 
 // Better Auth Session model
-model AuthSession {
+
+model session {
   id        String   @id @default(cuid())
   userId    String
   expiresAt DateTime
   ipAddress String?
   userAgent String?
-  
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  @@map("sessions")
+  token     String? // Session token
+  code      String? // Code field for Better Auth
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      user     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // Better Auth Verification model (for magic links, email verification, etc.)
-model Verification {
+
+model verification {
   id         String   @id @default(cuid())
-  identifier String   // unique identifier for the verification
-  value      String   // JSON stringified data
+  identifier String // unique identifier for the verification
+  value      String // JSON stringified data
   expiresAt  DateTime
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
-  
-  @@unique([identifier])
-  @@map("verification")
 }
 
 // Application Session model (for document sharing sessions)
-model Session {
-  id              String   @id @default(cuid())
-  code            String   @unique // 6-character code
-  name            String
-  description     String?
-  creatorId       String
-  latitude        Float
-  longitude       Float
-  radius          Int      @default(100) // meters
-  expiresAt       DateTime
-  createdAt       DateTime @default(now())
-  
-  creator         User     @relation(fields: [creatorId], references: [id])
-  documents       Document[]
-  participants    Participant[]
-  
+
+model AppSession {
+  id           String        @id @default(cuid())
+  code         String        @unique // 6-character code
+  name         String
+  description  String?
+  creatorId    String
+  latitude     Float
+  longitude    Float
+  radius       Int           @default(100) // meters
+  expiresAt    DateTime
+  createdAt    DateTime      @default(now())
+  creator      user          @relation("AppSessionCreator", fields: [creatorId], references: [id])
+  documents    Document[]
+  participants Participant[]
+  token        String
+  updatedAt    DateTime      @updatedAt
+  ipAddress    String?
+  userAgent    String?
+  userId       String
+  user         user          @relation("AppSessionUser", fields: [userId], references: [id], onDelete: Cascade)
+
   @@map("app_sessions")
+  @@unique([token])
 }
 
 model Document {
-  id          String   @id @default(cuid())
-  filename    String
-  mimetype    String
-  size        Int
-  path        String   // filesystem path
-  uploaderId  String
-  sessionId   String
-  createdAt   DateTime @default(now())
-  
-  uploader    User     @relation(fields: [uploaderId], references: [id])
-  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  filename   String
+  mimetype   String
+  size       Int
+  path       String // filesystem path
+  uploaderId String
+  sessionId  String
+  createdAt  DateTime @default(now())
+  uploader   user     @relation(fields: [uploaderId], references: [id])
+  session    AppSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
 
 model Participant {
@@ -115,9 +120,9 @@ model Participant {
   joinedAt  DateTime @default(now())
   latitude  Float?
   longitude Float?
-  
-  user      User     @relation(fields: [userId], references: [id])
-  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  
+  user      user     @relation(fields: [userId], references: [id])
+  session   AppSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
   @@unique([userId, sessionId])
 }
+
