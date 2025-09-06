@@ -106,6 +106,7 @@ func NewModelWithRoot(cfg *config.Config, projectRoot string) *Model {
 	menuList.Title = ""
 	menuList.SetShowHelp(true)
 	menuList.SetFilteringEnabled(false)
+	menuList.SetShowPagination(false)
 
 	// Initialize flow view (but don't create it until needed)
 	var flowView *views.FlowView

@@ -71,6 +71,14 @@ func (c *CostCalculator) loadModelPricing() {
 		LastUpdated: now,
 	}
 
+	c.pricing["openai/gpt-5"] = ModelPricing{
+		Provider:    "openai",
+		Model:       "gpt-5",
+		InputCost:   5.00,  // $5 per 1M input tokens (estimated)
+		OutputCost:  15.00, // $15 per 1M output tokens (estimated)
+		LastUpdated: now,
+	}
+
 	// Anthropic Claude Models (as of 2025)
 	c.pricing["anthropic/claude-3-5-sonnet"] = ModelPricing{
 		Provider:    "anthropic",

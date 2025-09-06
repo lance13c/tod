@@ -35,7 +35,7 @@ toddev         # Always uses your latest development code!
 make hotdev          # Hot reload development (primary workflow)
 make dev             # Quick run (go run .)
 make build-dev       # Build toddev binary
-make test-cicilio    # Test in ../ciciliostudio
+make test-repo REPO=../my-project  # Test in specific repo
 make help            # Show all commands
 ```
 

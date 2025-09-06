@@ -396,7 +396,7 @@ func scanProjectActions(cwd string, todConfig *config.Config, analysisChoice *co
 		Framework: todConfig.Testing.Framework,
 		Language:  todConfig.Testing.Language,
 		SkipLLM:   skipLLM,
-	})
+	}, todConfig)
 
 	// If we have analysis choices, configure the scanner accordingly
 	if analysisChoice != nil && analysisChoice.Type != "skip" {

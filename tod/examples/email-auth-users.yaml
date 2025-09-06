@@ -1,0 +1,55 @@
+# Example test users with email-based authentication
+# Run 'tod auth setup-email' first to configure Gmail access
+
+users:
+  # Magic link authentication with automatic email checking
+  magic_user_prod:
+    id: magic_user_production
+    name: "Magic Link Test User"
+    email: your@gmail.com  # Replace with your actual Gmail address
+    environment: production
+    auth_type: magic_link
+    description: "Production magic link user with email auto-detection"
+    auth_config:
+      email_endpoint: "/auth/magic-link"
+      email_check_enabled: true
+      email_timeout: 30  # Wait up to 30 seconds for email
+
+  # SMS/2FA code authentication via email forwarding
+  sms_user_staging:
+    id: sms_user_staging  
+    name: "SMS Code Test User"
+    email: your@gmail.com  # Same Gmail - SMS codes forwarded here
+    environment: staging
+    auth_type: 2fa
+    description: "Staging user with SMS codes forwarded to email"
+    auth_config:
+      email_check_enabled: true
+      email_timeout: 45  # SMS might take longer
+
+  # Email verification code user
+  email_verify_dev:
+    id: email_verify_development
+    name: "Email Verification User"
+    email: your@gmail.com
+    environment: development  
+    auth_type: email_verification
+    description: "Development user for email verification testing"
+    auth_config:
+      email_check_enabled: true
+      email_timeout: 20
+
+  # Fallback user without email checking (manual mode)
+  manual_user:
+    id: manual_user_prod
+    name: "Manual Auth User"
+    email: manual@example.com
+    environment: production
+    auth_type: username_password
+    description: "Traditional user without email automation"
+    auth_config:
+      login_form_url: "/login"
+      username_field: "#email"
+      password_field: "#password"
+      submit_button: "button[type='submit']"
+      # email_check_enabled: false  # Disabled by default for non-email auth

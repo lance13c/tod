@@ -476,6 +476,7 @@ func (c *OpenRouterClient) fallbackInterpretCommand(command string, availableAct
 	return interpretation
 }
 
+
 // formatActionsForLLM formats available actions for LLM context
 func formatActionsForLLM(actions []types.CodeAction) string {
 	if len(actions) == 0 {
@@ -503,6 +504,56 @@ func (c *OpenRouterClient) GetLastUsage() *UsageStats {
 	return c.lastUsage
 }
 
+// InterpretCommandWithContext implements conversation-aware command interpretation for OpenRouter
+func (c *OpenRouterClient) InterpretCommandWithContext(ctx context.Context, command string, availableActions []types.CodeAction, conversation *ConversationContext) (*CommandInterpretation, error) {
+	// For now, enhance the fallback with conversation context
+	// TODO: Implement actual API call with conversation history
+	interpretation := c.fallbackInterpretCommand(command, availableActions)
+	
+	// Enhanced logic based on conversation context
+	if conversation != nil && len(conversation.Messages) > 0 {
+		// Analyze recent conversation for better context understanding
+		recentMessages := conversation.Messages
+		if len(recentMessages) > 3 {
+			recentMessages = recentMessages[len(recentMessages)-3:] // Last 3 messages
+		}
+
+		// Build conversation context for better interpretation
+		contextClues := []string{}
+		for _, msg := range recentMessages {
+			if msg.Role == "user" {
+				contextClues = append(contextClues, strings.ToLower(msg.Content))
+			}
+		}
+
+		// Apply context-aware enhancements
+		for _, clue := range contextClues {
+			if strings.Contains(clue, "fill") && interpretation.CommandType == "unknown" {
+				if strings.Contains(command, "email") || strings.Contains(command, "password") {
+					interpretation.CommandType = "form_input"
+					interpretation.Confidence = 0.8
+					interpretation.Parameters["field_type"] = "credential"
+				}
+			}
+			
+			if strings.Contains(clue, "navigate") && interpretation.CommandType == "unknown" {
+				if strings.Contains(command, "button") || strings.Contains(command, "link") {
+					interpretation.CommandType = "interaction"
+					interpretation.Confidence = 0.75
+					interpretation.Parameters["element_type"] = "clickable"
+				}
+			}
+		}
+
+		// Boost confidence for contextual understanding
+		if interpretation.CommandType != "unknown" {
+			interpretation.Confidence = min(1.0, interpretation.Confidence+0.15)
+		}
+	}
+
+	return interpretation, nil
+}
+
 // EstimateCost implements the Client interface
 func (c *OpenRouterClient) EstimateCost(operation string, inputSize int) *UsageStats {
 	var inputTokens, outputTokens int64
@@ -510,16 +561,17 @@ func (c *OpenRouterClient) EstimateCost(operation string, inputSize int) *UsageS
 	switch operation {
 	case "analyze_code":
 		// Estimate based on input size (rough approximation)
-		inputTokens = int64(inputSize) * 4 / 3 // ~1.33 tokens per word
-		outputTokens = 400                     // typical analysis response
+		// inputSize is bytes, ~4 characters per token for code
+		inputTokens = int64(inputSize) / 4
+		outputTokens = 400 // typical analysis response
 	case "generate_flow":
-		inputTokens = int64(inputSize) * 4 / 3
+		inputTokens = int64(inputSize) / 4
 		outputTokens = 600 // typical flow response
 	case "research_framework":
 		inputTokens = 200   // base prompt
 		outputTokens = 1000 // typical research response
 	default:
-		inputTokens = int64(inputSize) * 4 / 3
+		inputTokens = int64(inputSize) / 4
 		outputTokens = 500 // generic estimate
 	}
 

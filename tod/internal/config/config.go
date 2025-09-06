@@ -184,7 +184,7 @@ func (c *Config) Validate() error {
 		return NewValidationError("ai.provider is required")
 	}
 	
-	if c.AI.APIKey == "" && c.AI.Provider != "custom" {
+	if c.AI.APIKey == "" && c.AI.Provider != "custom" && c.AI.Provider != "local" {
 		return NewValidationError("ai.api_key is required for provider: " + c.AI.Provider)
 	}
 	

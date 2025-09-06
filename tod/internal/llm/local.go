@@ -621,6 +621,12 @@ func (c *localClient) AnalyzeScreenshot(ctx context.Context, screenshot []byte, 
 	}, nil
 }
 
+// InterpretCommandWithContext implements the Client interface
+func (c *localClient) InterpretCommandWithContext(ctx context.Context, command string, availableActions []types.CodeAction, conversation *ConversationContext) (*CommandInterpretation, error) {
+	// Delegate to regular interpret command - local client doesn't need conversation context
+	return c.InterpretCommand(ctx, command, availableActions)
+}
+
 // EstimateCost implements the Client interface
 func (c *localClient) EstimateCost(operation string, inputSize int) *UsageStats {
 	// Local analysis is free

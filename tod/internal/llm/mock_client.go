@@ -268,6 +268,60 @@ func (m *mockClient) InterpretCommand(ctx context.Context, command string, avail
 	return interpretation, nil
 }
 
+// InterpretCommandWithContext implements the Client interface with conversation-aware mock command interpretation
+func (m *mockClient) InterpretCommandWithContext(ctx context.Context, command string, availableActions []types.CodeAction, conversation *ConversationContext) (*CommandInterpretation, error) {
+	// For the mock client, we enhance the basic interpretation with conversation context
+	interpretation, err := m.InterpretCommand(ctx, command, availableActions)
+	if err != nil {
+		return nil, err
+	}
+
+	// Enhanced mock behavior based on conversation history
+	if conversation != nil && len(conversation.Messages) > 0 {
+		// Look at recent conversation for context
+		recentMessages := conversation.Messages
+		if len(recentMessages) > 5 {
+			recentMessages = recentMessages[len(recentMessages)-5:] // Last 5 messages
+		}
+
+		// Enhanced interpretation based on conversation context
+		for _, msg := range recentMessages {
+			if msg.Role == "user" {
+				msgLower := strings.ToLower(msg.Content)
+				
+				// If user previously tried authentication commands
+				if strings.Contains(msgLower, "login") || strings.Contains(msgLower, "sign in") {
+					if interpretation.CommandType == "unknown" && (strings.Contains(command, "email") || strings.Contains(command, "password")) {
+						interpretation.CommandType = "form_input"
+						interpretation.Parameters["context"] = "continuing_authentication"
+						interpretation.Confidence = 0.9
+						interpretation.Suggestions = []string{"fill email field", "enter password", "click login button"}
+					}
+				}
+
+				// If user was navigating previously
+				if strings.Contains(msgLower, "navigate") || strings.Contains(msgLower, "go to") {
+					if interpretation.CommandType == "unknown" && strings.Contains(command, "click") {
+						interpretation.CommandType = "interaction" 
+						interpretation.Parameters["context"] = "continuing_navigation"
+						interpretation.Confidence = 0.85
+					}
+				}
+			}
+		}
+
+		// Boost confidence for conversational commands
+		if interpretation.CommandType != "unknown" {
+			interpretation.Confidence = min(1.0, interpretation.Confidence+0.1) // Slight confidence boost
+		}
+
+		// Add contextual suggestions
+		interpretation.Suggestions = append(interpretation.Suggestions, "Continue with current flow", "Try different approach")
+	}
+
+	return interpretation, nil
+}
+
 // GetLastUsage implements the Client interface for mock
 func (m *mockClient) GetLastUsage() *UsageStats {
 	// Return mock usage stats

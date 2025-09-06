@@ -9,9 +9,10 @@ import (
 
 // openAIClientSimple is a simplified implementation that delegates to mock
 type openAIClientSimple struct {
-	apiKey string
-	model  string
-	mock   *mockClient
+	apiKey   string
+	model    string
+	mock     *mockClient
+	costCalc *CostCalculator
 }
 
 // newOpenAIClient creates a new simplified OpenAI client
@@ -28,9 +29,10 @@ func newOpenAIClient(apiKey string, options map[string]interface{}) (Client, err
 	mockClient := &mockClient{}
 
 	return &openAIClientSimple{
-		apiKey: apiKey,
-		model:  model,
-		mock:   mockClient,
+		apiKey:   apiKey,
+		model:    model,
+		mock:     mockClient,
+		costCalc: NewCostCalculator(),
 	}, nil
 }
 
@@ -93,7 +95,17 @@ func (c *openAIClientSimple) GetLastUsage() *UsageStats {
 	return c.mock.GetLastUsage()
 }
 
+// InterpretCommandWithContext implements the Client interface
+func (c *openAIClientSimple) InterpretCommandWithContext(ctx context.Context, command string, availableActions []types.CodeAction, conversation *ConversationContext) (*CommandInterpretation, error) {
+	// Delegate to regular interpret command - simple client doesn't need conversation context
+	return c.InterpretCommand(ctx, command, availableActions)
+}
+
 // EstimateCost implements the Client interface
 func (c *openAIClientSimple) EstimateCost(operation string, inputSize int) *UsageStats {
-	return c.mock.EstimateCost(operation, inputSize)
+	// Get token estimates from mock (for token calculation logic)
+	mockEstimate := c.mock.EstimateCost(operation, inputSize)
+	
+	// Use real cost calculator with provider and model
+	return c.costCalc.EstimateCost("openai", c.model, mockEstimate.InputTokens, mockEstimate.OutputTokens)
 }
