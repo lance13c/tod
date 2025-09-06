@@ -25,7 +25,7 @@ export default function Home() {
   const searchParams = useSearchParams()
   const { data: session } = useSession()
 
-  // Check for error parameters
+  // Check for error parameters and redirect authenticated users
   React.useEffect(() => {
     const error = searchParams.get('error')
     if (error === 'INVALID_TOKEN') {
@@ -33,7 +33,12 @@ export default function Home() {
         description: 'Please request a new magic link to sign in.',
       })
     }
-  }, [searchParams])
+    
+    // Automatically redirect authenticated users to dashboard
+    if (session?.user) {
+      router.push('/dashboard')
+    }
+  }, [searchParams, session, router])
 
   const handleGithubLogin = async () => {
     setIsGithubLoading(true)
