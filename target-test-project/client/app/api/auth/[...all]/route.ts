@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 // Proxy all auth requests to the backend server
 export async function GET(request: NextRequest) {
@@ -22,49 +22,56 @@ export async function GET(request: NextRequest) {
       // Update redirect URLs to use port 3001 instead of 8000
       let newLocation = location.replace('http://localhost:8000', 'http://localhost:3001')
       
-      // If this is a successful magic link verification, redirect to dashboard
+      // If this is a successful magic link verification, use the callbackURL from the query
       if (pathname.includes('/magic-link/verify') && response.status === 302) {
-        // Check if the redirect is going to the callback URL
-        const locationUrl = new URL(location, 'http://localhost:3001')
-        if (locationUrl.pathname === '/' || locationUrl.pathname === '') {
+        const callbackUrl = url.searchParams.get('callbackURL')
+        if (callbackUrl) {
+          // Use the provided callback URL
+          newLocation = callbackUrl
+        } else if (location === 'http://localhost:3001' || location === 'http://localhost:3001/') {
+          // Default to dashboard if no specific callback
           newLocation = 'http://localhost:3001/dashboard'
         }
       }
       
-      // Pass along any set-cookie headers from the backend
-      const headers = new Headers()
-      response.headers.forEach((value, key) => {
-        // Only pass through set-cookie headers for redirects
-        if (key.toLowerCase() === 'set-cookie') {
-          headers.append(key, value)
-        }
-      })
-      headers.set('location', newLocation)
+      // Create NextResponse for proper cookie handling
+      const nextResponse = NextResponse.redirect(new URL(newLocation, request.url))
       
-      return new Response(null, {
-        status: response.status,
-        headers,
+      // Pass along all set-cookie headers from the backend
+      const setCookieHeaders = response.headers.getSetCookie()
+      setCookieHeaders.forEach(cookie => {
+        nextResponse.headers.append('set-cookie', cookie)
       })
+      
+      return nextResponse
     }
   }
   
   const data = await response.text()
   
-  // Create response with proper headers including cookies
-  const responseHeaders = new Headers()
+  // Create NextResponse with proper cookie handling
+  const nextResponse = new NextResponse(data, {
+    status: response.status,
+    headers: new Headers(),
+  })
+  
+  // Copy headers, excluding problematic encoding headers
   response.headers.forEach((value, key) => {
-    // Skip content-encoding and content-length headers as we're returning decoded text
     if (key.toLowerCase() !== 'content-encoding' && 
         key.toLowerCase() !== 'content-length' &&
-        key.toLowerCase() !== 'transfer-encoding') {
-      responseHeaders.append(key, value)
+        key.toLowerCase() !== 'transfer-encoding' &&
+        key.toLowerCase() !== 'set-cookie') {
+      nextResponse.headers.set(key, value)
     }
   })
   
-  return new Response(data, {
-    status: response.status,
-    headers: responseHeaders,
+  // Handle cookies properly
+  const setCookieHeaders = response.headers.getSetCookie()
+  setCookieHeaders.forEach(cookie => {
+    nextResponse.headers.append('set-cookie', cookie)
   })
+  
+  return nextResponse
 }
 
 export async function POST(request: NextRequest) {
@@ -87,21 +94,29 @@ export async function POST(request: NextRequest) {
   
   const data = await response.text()
   
-  // Create response with proper headers including cookies
-  const responseHeaders = new Headers()
+  // Create NextResponse with proper cookie handling
+  const nextResponse = new NextResponse(data, {
+    status: response.status,
+    headers: new Headers(),
+  })
+  
+  // Copy headers, excluding problematic encoding headers
   response.headers.forEach((value, key) => {
-    // Skip content-encoding and content-length headers as we're returning decoded text
     if (key.toLowerCase() !== 'content-encoding' && 
         key.toLowerCase() !== 'content-length' &&
-        key.toLowerCase() !== 'transfer-encoding') {
-      responseHeaders.append(key, value)
+        key.toLowerCase() !== 'transfer-encoding' &&
+        key.toLowerCase() !== 'set-cookie') {
+      nextResponse.headers.set(key, value)
     }
   })
   
-  return new Response(data, {
-    status: response.status,
-    headers: responseHeaders,
+  // Handle cookies properly
+  const setCookieHeaders = response.headers.getSetCookie()
+  setCookieHeaders.forEach(cookie => {
+    nextResponse.headers.append('set-cookie', cookie)
   })
+  
+  return nextResponse
 }
 
 export async function PUT(request: NextRequest) {
@@ -123,19 +138,27 @@ export async function DELETE(request: NextRequest) {
   
   const data = await response.text()
   
-  // Create response with proper headers including cookies
-  const responseHeaders = new Headers()
+  // Create NextResponse with proper cookie handling
+  const nextResponse = new NextResponse(data, {
+    status: response.status,
+    headers: new Headers(),
+  })
+  
+  // Copy headers, excluding problematic encoding headers
   response.headers.forEach((value, key) => {
-    // Skip content-encoding and content-length headers as we're returning decoded text
     if (key.toLowerCase() !== 'content-encoding' && 
         key.toLowerCase() !== 'content-length' &&
-        key.toLowerCase() !== 'transfer-encoding') {
-      responseHeaders.append(key, value)
+        key.toLowerCase() !== 'transfer-encoding' &&
+        key.toLowerCase() !== 'set-cookie') {
+      nextResponse.headers.set(key, value)
     }
   })
   
-  return new Response(data, {
-    status: response.status,
-    headers: responseHeaders,
+  // Handle cookies properly
+  const setCookieHeaders = response.headers.getSetCookie()
+  setCookieHeaders.forEach(cookie => {
+    nextResponse.headers.append('set-cookie', cookie)
   })
+  
+  return nextResponse
 }
