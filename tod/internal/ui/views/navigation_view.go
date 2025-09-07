@@ -647,18 +647,15 @@ func (v *NavigationView) generateSuggestions() {
 	// If input is empty, show top page elements and commands
 	if input == "" {
 		// Add common commands first
-		commands := []Command{
-			{Display: "go back", Description: "Navigate back in browser history"},
-			{Display: "go to home", Description: "Navigate to homepage"},
-			{Display: "refresh", Description: "Refresh current page"},
-		}
+		commands := v.getAvailableCommands()[:3] // Get first 3 commands (go back, go to home, refresh)
 
-		for _, cmd := range commands {
+		for i := range commands {
+			cmd := &commands[i] // Take address of the command in the slice
 			v.suggestions = append(v.suggestions, Suggestion{
 				Type:       CommandSuggestion,
 				Text:       cmd.Display,
 				Subtitle:   cmd.Description + " ⌘",
-				Command:    &cmd,
+				Command:    cmd,
 				MatchScore: 1.0,
 			})
 		}
@@ -1376,22 +1373,21 @@ func (v *NavigationView) executeElement(element NavigableElement) tea.Cmd {
 	}
 }
 
-func (v *NavigationView) matchCommand(input string) *Command {
-	inputLower := strings.ToLower(strings.TrimSpace(input))
-
-	commands := []Command{
-		{
-			Display:     "go to home",
-			Description: "Navigate to homepage",
-			Handler: func(v *NavigationView) error {
-				return v.goHome()
-			},
-		},
+// getAvailableCommands returns all available commands with their handlers
+func (v *NavigationView) getAvailableCommands() []Command {
+	return []Command{
 		{
 			Display:     "go back",
 			Description: "Navigate back in browser history",
 			Handler: func(v *NavigationView) error {
 				return v.goBack()
+			},
+		},
+		{
+			Display:     "go to home",
+			Description: "Navigate to homepage",
+			Handler: func(v *NavigationView) error {
+				return v.goHome()
 			},
 		},
 		{
@@ -1409,6 +1405,12 @@ func (v *NavigationView) matchCommand(input string) *Command {
 			},
 		},
 	}
+}
+
+func (v *NavigationView) matchCommand(input string) *Command {
+	inputLower := strings.ToLower(strings.TrimSpace(input))
+
+	commands := v.getAvailableCommands()
 
 	// Check for prefix matches with common command patterns
 	commandPatterns := map[string]string{
