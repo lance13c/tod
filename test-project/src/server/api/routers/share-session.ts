@@ -146,7 +146,7 @@ export const shareSessionRouter = createTRPCRouter({
       description: z.string().optional(),
       latitude: z.number().min(-90).max(90),
       longitude: z.number().min(-180).max(180),
-      geoLockRadius: z.number().min(10).max(1000).default(100),
+      geoLockRadius: z.number().min(10).max(5000).default(500), // Increased default to 500m and max to 5000m for lower accuracy GPS
       maxParticipants: z.number().min(2).max(50).default(10),
       expiresInHours: z.number().min(1).max(24).default(4),
       requiresAuth: z.boolean().default(false),

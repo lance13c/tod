@@ -41,7 +41,7 @@ export default function SharePage() {
     loading: locationLoading,
     requestLocation,
     permission,
-  } = useGeolocation({ enableHighAccuracy: true });
+  } = useGeolocation({ enableHighAccuracy: false }); // Use lower accuracy for faster results
 
   // Determine which coordinates to use (actual or fallback)
   const effectiveLat = latitude || (usingFallback ? FALLBACK_LAT : null);

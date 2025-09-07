@@ -86,8 +86,8 @@ export function useGeolocation(options: UseGeolocationOptions = {}) {
             },
             {
               enableHighAccuracy: false, // Try with lower accuracy
-              timeout: 10000,
-              maximumAge: 60000, // Accept older cached position
+              timeout: 30000, // Give more time
+              maximumAge: 300000, // Accept position up to 5 minutes old
             }
           );
           return;
@@ -119,9 +119,9 @@ export function useGeolocation(options: UseGeolocationOptions = {}) {
     setState(prev => ({ ...prev, loading: true, error: null }));
 
     const geoOptions: PositionOptions = {
-      enableHighAccuracy: options.enableHighAccuracy ?? true,
-      timeout: options.timeout ?? 30000, // Increased timeout to 30 seconds
-      maximumAge: options.maximumAge ?? 5000, // Allow cached position up to 5 seconds old
+      enableHighAccuracy: options.enableHighAccuracy ?? false, // Use low accuracy by default for faster results
+      timeout: options.timeout ?? 30000, // 30 seconds timeout
+      maximumAge: options.maximumAge ?? 60000, // Allow cached position up to 60 seconds old
     };
 
     if (options.watchPosition) {
