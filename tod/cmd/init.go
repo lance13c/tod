@@ -41,7 +41,7 @@ func init() {
 	initCmd.Flags().BoolP("non-interactive", "", false, "Skip interactive prompts and use defaults")
 
 	// Non-interactive configuration flags
-	initCmd.Flags().StringP("model", "", "gpt-5", "AI model (e.g., gpt-5, claude-4-opus, gemini-2.5-pro, or custom:provider:model-name)")
+	initCmd.Flags().StringP("model", "", "gpt-4o-mini", "AI model (e.g., gpt-4o-mini, claude-4-opus, gemini-2.5-pro, or custom:provider:model-name)")
 	initCmd.Flags().StringP("ai-key", "", "", "AI API key (uses TOD_AI_API_KEY env var if not provided)")
 	initCmd.Flags().StringP("base-url", "", "http://localhost:3000", "Base URL for development environment")
 	initCmd.Flags().StringP("framework", "", "", "E2E testing framework (auto-detect if not provided)")
@@ -259,7 +259,7 @@ func createNonInteractiveConfig(cmd *cobra.Command, cwd string, existingConfig *
 	testDir, _ := cmd.Flags().GetString("test-dir")
 
 	// Use existing values as defaults for unspecified flags
-	if modelFlag == "gpt-5" && existingConfig != nil { // Default flag value
+	if modelFlag == "gpt-4o-mini" && existingConfig != nil { // Default flag value
 		modelFlag = existingConfig.AI.Provider + ":" + existingConfig.AI.Model
 	}
 	if aiKey == "" && existingConfig != nil {
@@ -292,11 +292,11 @@ func createNonInteractiveConfig(cmd *cobra.Command, cwd string, existingConfig *
 				ModelName: existingConfig.AI.Model,
 			}
 		} else {
-			fmt.Println("Using default: gpt-5")
+			fmt.Println("Using default: gpt-4o-mini")
 			selectedModel = &config.ModelInfo{
-				ID:        "gpt-5",
+				ID:        "gpt-4o-mini",
 				Provider:  "openai",
-				ModelName: "gpt-5",
+				ModelName: "gpt-4o-mini",
 			}
 		}
 	}

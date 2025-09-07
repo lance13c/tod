@@ -395,7 +395,7 @@ func (m *InitWizardModel) setupStepInput() {
 				m.defaultValue = m.aiConfig.Provider + ":" + m.aiConfig.Model
 			}
 		} else {
-			m.defaultValue = "gpt-5 (OpenAI)"
+			m.defaultValue = "gpt-4o-mini (OpenAI)"
 		}
 		m.placeholder = "Select a model or enter custom:provider:model-name"
 
@@ -497,9 +497,9 @@ func (m *InitWizardModel) saveCurrentStep(value string) {
 		selectedModel, err := config.ParseModelSelection(modelID)
 		if err != nil {
 			selectedModel = &config.ModelInfo{
-				ID:        "gpt-5",
+				ID:        "gpt-4o-mini",
 				Provider:  "openai",
-				ModelName: "gpt-5",
+				ModelName: "gpt-4o-mini",
 			}
 		}
 		m.aiConfig.Provider = selectedModel.Provider
@@ -629,8 +629,8 @@ func parseModelDisplayName(displayName string) string {
 	if strings.Contains(lower, "claude") && strings.Contains(lower, "4") && strings.Contains(lower, "opus") {
 		return "claude-4-opus"
 	}
-	if strings.Contains(lower, "gpt-5") {
-		return "gpt-5"
+	if strings.Contains(lower, "gpt-4o-mini") {
+		return "gpt-4o-mini"
 	}
 	if strings.Contains(lower, "grok-4") {
 		return "grok-4"

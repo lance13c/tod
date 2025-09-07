@@ -170,7 +170,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		AI: AIConfig{
 			Provider: "openai",
-			Model:    "gpt-4-turbo",
+			Model:    "gpt-4o-mini",
 		},
 		Testing: TestingConfig{
 			Language: "typescript",
@@ -185,6 +185,9 @@ func DefaultConfig() *Config {
 			},
 		},
 		Current: "development",
+		Browser: BrowserConfig{
+			Headless: true,
+		},
 		Meta: MetaConfig{
 			Version:   "1.0.0",
 			CreatedAt: now,
