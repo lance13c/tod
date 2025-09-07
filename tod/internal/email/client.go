@@ -163,6 +163,11 @@ func (c *Client) TestConnection() error {
 	return nil
 }
 
+// GetUserEmail returns the configured user email
+func (c *Client) GetUserEmail() string {
+	return c.userEmail
+}
+
 // createGmailService creates a Gmail API service from stored config
 func createGmailService(config *EmailConfig) (*gmail.Service, error) {
 	oauthConfig := &oauth2.Config{

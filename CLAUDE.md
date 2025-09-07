@@ -137,9 +137,33 @@ xcrun notarytool store-credentials "notarytool-profile" \
 ```
 
 **Credential Storage:**
-- Notarization credentials are stored in `.notarization-credentials` file
+- Notarization credentials are stored securely in macOS Keychain
 - Keychain profile name: `notarytool-profile`
-- Never commit credentials to git
+- Never commit raw credentials to git - they should only exist in keychain and environment variables
+
+### Notarization Setup (One-time)
+
+**Required Credentials:**
+- **Apple ID**: dominic@ciciliostudio.com
+- **Team ID**: 745D23AJ53 (Ciciliostudio LLC)
+- **App-Specific Password**: Generate from [appleid.apple.com](https://appleid.apple.com) → Sign-In and Security → App-Specific Passwords
+
+**Store Credentials in Keychain:**
+```bash
+xcrun notarytool store-credentials "notarytool-profile" \
+  --apple-id "dominic@ciciliostudio.com" \
+  --team-id "745D23AJ53" \
+  --password "[app-specific-password]"
+```
+
+**Verify Setup:**
+```bash
+# Check if profile exists
+security find-generic-password -s "notarytool-profile"
+
+# Verify credentials work
+xcrun notarytool history --keychain-profile "notarytool-profile"
+```
 
 ### Release Workflow
 
@@ -222,6 +246,67 @@ brew install --cask tod
 **Notarization Timeout:**
 - Apple service can be slow
 - Script waits up to 15 minutes automatically
+
+### Manual Notarization Process
+
+**If automatic notarization fails during release:**
+
+1. **Create zip for notarization:**
+   ```bash
+   cd dist && zip -r tod-notarization.zip Tod.app
+   ```
+
+2. **Submit to Apple:**
+   ```bash
+   xcrun notarytool submit tod-notarization.zip \
+     --keychain-profile "notarytool-profile" \
+     --wait
+   ```
+
+3. **Staple notarization ticket:**
+   ```bash
+   xcrun stapler staple Tod.app
+   ```
+
+4. **Verify notarization:**
+   ```bash
+   spctl -a -vvv -t install Tod.app
+   # Should show: "source=Notarized Developer ID"
+   ```
+
+5. **Recreate DMG with notarized app:**
+   ```bash
+   rm tod-X.X.X.dmg
+   hdiutil create -volname "Tod X.X.X" -srcfolder Tod.app -ov -format UDZO tod-X.X.X.dmg
+   ```
+
+6. **Calculate new SHA256:**
+   ```bash
+   shasum -a 256 tod-X.X.X.dmg
+   ```
+
+7. **Update homebrew formula:**
+   - Edit `homebrew/tod.rb` with new SHA256
+   - Commit and push to public repo
+
+8. **Re-upload to GitHub release:**
+   ```bash
+   gh release upload vX.X.X dist/tod-X.X.X.dmg --repo lance13c/tod --clobber
+   ```
+
+### Common Issues
+
+**"Unnotarized Developer ID" Error:**
+- Missing notarization profile in keychain
+- Run setup commands above to store credentials
+
+**"Archive contains critical validation errors":**
+- Check hardened runtime is enabled: `--options runtime`
+- View detailed logs: `xcrun notarytool log [submission-id] --keychain-profile "notarytool-profile"`
+
+**Homebrew Formula SHA256 Mismatch:**
+- Re-notarization changes the DMG SHA256
+- Always recalculate and update formula after notarization
 
 ### Security Notes
 

@@ -167,6 +167,28 @@ select_version() {
     log "Selected version: $NEW_VERSION"
 }
 
+setup_notarization_credentials() {
+    log "Setting up notarization credentials..."
+    
+    read -p "Enter app-specific password: " -s app_password
+    echo ""
+    
+    if [[ -z "$app_password" ]]; then
+        error "App-specific password is required"
+    fi
+    
+    log "Storing credentials in keychain..."
+    if xcrun notarytool store-credentials "notarytool-profile" \
+        --apple-id "dominic@ciciliostudio.com" \
+        --team-id "745D23AJ53" \
+        --password "$app_password"; then
+        log "Notarization credentials stored successfully ✅"
+        NOTARIZATION_PROFILE="notarytool-profile"
+    else
+        error "Failed to store notarization credentials"
+    fi
+}
+
 check_signing_identity() {
     log "Checking for code signing identity..."
     
@@ -189,6 +211,18 @@ check_signing_identity() {
         else
             warn "No notarization profile found. App will be signed but not notarized."
             warn "Users may still see security warnings when opening the app."
+            echo ""
+            info "To set up notarization (recommended):"
+            echo "  xcrun notarytool store-credentials \"notarytool-profile\" \\"
+            echo "    --apple-id \"dominic@ciciliostudio.com\" \\"
+            echo "    --team-id \"745D23AJ53\" \\"
+            echo "    --password \"[app-specific-password]\""
+            echo ""
+            info "Generate app-specific password at: https://appleid.apple.com"
+            echo ""
+            if confirm "Set up notarization credentials now?"; then
+                setup_notarization_credentials
+            fi
         fi
     fi
 }
@@ -240,10 +274,23 @@ notarize_app() {
                 break
                 ;;
             "Rejected")
-                error "Notarization was rejected. Check the logs with: xcrun notarytool log $submission_id --keychain-profile $NOTARIZATION_PROFILE"
+                error "Notarization was rejected. App contains validation errors."
+                warn "Check detailed logs with:"
+                echo "  xcrun notarytool log $submission_id --keychain-profile $NOTARIZATION_PROFILE"
+                echo ""
+                warn "Common issues:"
+                echo "  - Missing hardened runtime (should be enabled automatically)"
+                echo "  - Unsigned components or libraries"
+                echo "  - Invalid bundle structure"
+                return 1
                 ;;
             "Invalid")
-                error "Notarization submission was invalid. Check the logs with: xcrun notarytool log $submission_id --keychain-profile $NOTARIZATION_PROFILE"
+                error "Notarization submission was invalid."
+                warn "Check submission format with:"
+                echo "  xcrun notarytool log $submission_id --keychain-profile $NOTARIZATION_PROFILE"
+                echo ""
+                warn "This usually indicates a problem with the ZIP file or app bundle structure."
+                return 1
                 ;;
             "In Progress")
                 info "Notarization in progress... (attempt $((attempts + 1))/$max_attempts)"
@@ -260,6 +307,13 @@ notarize_app() {
     
     if [[ "$status" != "Accepted" ]]; then
         error "Notarization did not complete successfully within the timeout period"
+        warn "You can manually complete the notarization process:"
+        echo "  1. Check status: xcrun notarytool info $submission_id --keychain-profile $NOTARIZATION_PROFILE"
+        echo "  2. Wait for completion and staple: xcrun stapler staple dist/Tod.app"
+        echo "  3. Recreate DMG: hdiutil create -volname \"Tod $NEW_VERSION\" -srcfolder dist/Tod.app -ov -format UDZO dist/tod-$NEW_VERSION.dmg"
+        echo "  4. Update SHA256 in homebrew/tod.rb"
+        echo "  5. Re-upload to release: gh release upload v$NEW_VERSION dist/tod-$NEW_VERSION.dmg --repo $RELEASES_REPO --clobber"
+        return 1
     fi
     
     # Staple the notarization ticket
@@ -339,7 +393,12 @@ EOF
             log "App bundle signed successfully ✅"
             
             # Notarize the app
-            notarize_app
+            if ! notarize_app; then
+                warn "Notarization failed, but continuing with signed (unnotarized) build"
+                warn "Users will see security warnings when opening the app"
+                echo ""
+                info "You can manually notarize later following the steps in CLAUDE.md"
+            fi
         else
             warn "Failed to verify signature. App may still work but will show security warnings."
         fi

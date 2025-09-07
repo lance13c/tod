@@ -1,7 +1,6 @@
 package users
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -219,11 +218,7 @@ func (a *AuthFlowManager) IsEmailConfigured() bool {
 // GetConfiguredEmail returns the configured email address
 func (a *AuthFlowManager) GetConfiguredEmail() string {
 	if a.emailClient != nil {
-<<<<<<< HEAD
-		return a.emailClient.GetUsername()
-=======
-		return a.emailClient.userEmail
->>>>>>> origin/main
+		return a.emailClient.GetUserEmail()
 	}
 	return ""
 }

@@ -109,3 +109,8 @@ func (c *googleClientSimple) EstimateCost(operation string, inputSize int) *Usag
 	// Use real cost calculator with provider and model
 	return c.costCalc.EstimateCost("google", c.model, mockEstimate.InputTokens, mockEstimate.OutputTokens)
 }
+
+// RankNavigationElements delegates to mock implementation
+func (c *googleClientSimple) RankNavigationElements(ctx context.Context, userInput string, elements []NavigationElement) (*NavigationRanking, error) {
+	return c.mock.RankNavigationElements(ctx, userInput, elements)
+}

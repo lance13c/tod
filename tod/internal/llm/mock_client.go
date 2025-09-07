@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/ciciliostudio/tod/internal/types"
@@ -509,4 +510,112 @@ func (m *mockClient) EstimateCost(operation string, inputSize int) *UsageStats {
 		OutputCost:   0.0,
 		TotalCost:    0.0,
 	}
+}
+
+// RankNavigationElements implements the Client interface with mock navigation ranking
+func (m *mockClient) RankNavigationElements(ctx context.Context, userInput string, elements []NavigationElement) (*NavigationRanking, error) {
+	userInputLower := strings.ToLower(userInput)
+	rankedElements := []RankedNavigationElement{}
+
+	// Simple matching logic for mock
+	for _, element := range elements {
+		confidence := 0.0
+		strategy := "standard"
+		reasoning := ""
+
+		elementTextLower := strings.ToLower(element.Text)
+
+		// Direct match gets highest confidence
+		if elementTextLower == userInputLower {
+			confidence = 0.95
+			reasoning = "Exact text match"
+		} else if strings.Contains(elementTextLower, userInputLower) {
+			confidence = 0.85
+			reasoning = "Text contains user input"
+		} else if strings.Contains(userInputLower, elementTextLower) && elementTextLower != "" {
+			confidence = 0.75
+			reasoning = "User input contains element text"
+		} else {
+			// Fuzzy matching for common patterns
+			if (strings.Contains(userInputLower, "sign") && strings.Contains(elementTextLower, "sign")) ||
+			   (strings.Contains(userInputLower, "login") && strings.Contains(elementTextLower, "log")) ||
+			   (strings.Contains(userInputLower, "auth") && strings.Contains(elementTextLower, "auth")) {
+				confidence = 0.6
+				reasoning = "Related authentication terms"
+			} else if strings.Contains(userInputLower, "home") && strings.Contains(elementTextLower, "home") {
+				confidence = 0.7
+				reasoning = "Home navigation match"
+			} else {
+				// Calculate basic similarity
+				similarity := calculateBasicSimilarity(userInputLower, elementTextLower)
+				if similarity > 0.3 {
+					confidence = similarity * 0.5
+					reasoning = "Basic text similarity"
+				}
+			}
+		}
+
+		// Suggest strategy based on element type and text patterns
+		if strings.Contains(elementTextLower, "react") || strings.Contains(elementTextLower, "vue") {
+			strategy = "javascript"
+		} else if element.Type == "button" && strings.Contains(elementTextLower, "submit") {
+			strategy = "event"
+		}
+
+		if confidence > 0.1 {
+			rankedElements = append(rankedElements, RankedNavigationElement{
+				NavigationElement: element,
+				Confidence:        confidence,
+				Reasoning:         reasoning,
+				Strategy:          strategy,
+			})
+		}
+	}
+
+	// Sort by confidence descending
+	sort.Slice(rankedElements, func(i, j int) bool {
+		return rankedElements[i].Confidence > rankedElements[j].Confidence
+	})
+
+	return &NavigationRanking{
+		Elements: rankedElements,
+		Usage: &UsageStats{
+			Provider:     "mock",
+			Model:        "mock-model",
+			InputTokens:  20,
+			OutputTokens: 50,
+			TotalTokens:  70,
+			InputCost:    0.0,
+			OutputCost:   0.0,
+			TotalCost:    0.0,
+		},
+	}, nil
+}
+
+// calculateBasicSimilarity calculates a simple text similarity score
+func calculateBasicSimilarity(a, b string) float64 {
+	if a == "" || b == "" {
+		return 0.0
+	}
+
+	// Count common words
+	wordsA := strings.Fields(a)
+	wordsB := strings.Fields(b)
+	
+	commonWords := 0
+	for _, wordA := range wordsA {
+		for _, wordB := range wordsB {
+			if wordA == wordB {
+				commonWords++
+				break
+			}
+		}
+	}
+
+	totalWords := len(wordsA) + len(wordsB)
+	if totalWords == 0 {
+		return 0.0
+	}
+
+	return float64(commonWords*2) / float64(totalWords)
 }
