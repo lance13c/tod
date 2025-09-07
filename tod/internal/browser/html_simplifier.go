@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 )
@@ -31,6 +32,192 @@ func SimplifyHTML(htmlContent string) (string, error) {
 	}
 
 	return buf.String(), nil
+}
+
+// CleanHTML optimizes HTML using goquery for better performance and cleaner output
+// This method is more aggressive in removing unnecessary elements while preserving
+// essential content and interactive elements for LLM processing
+func CleanHTML(htmlContent string) (string, error) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse HTML with goquery: %w", err)
+	}
+
+	// Remove script, style, and other non-content elements
+	doc.Find("script, style, noscript, iframe, svg, link, meta").Remove()
+
+	// Remove comments by filtering the HTML nodes
+	doc.Find("*").Each(func(i int, s *goquery.Selection) {
+		if s.Nodes != nil && len(s.Nodes) > 0 {
+			node := s.Nodes[0]
+			// Remove comment nodes from children
+			var toRemove []*html.Node
+			for c := node.FirstChild; c != nil; c = c.NextSibling {
+				if c.Type == html.CommentNode {
+					toRemove = append(toRemove, c)
+				}
+			}
+			for _, n := range toRemove {
+				node.RemoveChild(n)
+			}
+		}
+	})
+
+	// Remove hidden elements
+	doc.Find("[hidden]").Remove()
+	doc.Find("[style*='display:none']").Remove()
+	doc.Find("[style*='display: none']").Remove()
+	doc.Find("[style*='visibility:hidden']").Remove()
+	doc.Find("[style*='visibility: hidden']").Remove()
+
+	// Preserve only essential attributes
+	doc.Find("*").Each(func(i int, s *goquery.Selection) {
+		if s.Nodes == nil || len(s.Nodes) == 0 {
+			return
+		}
+		node := s.Nodes[0]
+		var preservedAttrs []html.Attribute
+
+		// Define which attributes to keep
+		for _, attr := range node.Attr {
+			// Keep test IDs, data attributes, and semantic attributes
+			if attr.Key == "data-testid" ||
+				attr.Key == "data-test" ||
+				attr.Key == "data-cy" ||
+				attr.Key == "id" ||
+				attr.Key == "class" ||
+				strings.HasPrefix(attr.Key, "aria-") ||
+				attr.Key == "role" ||
+				attr.Key == "href" ||
+				attr.Key == "src" ||
+				attr.Key == "alt" ||
+				attr.Key == "title" ||
+				attr.Key == "type" ||
+				attr.Key == "name" ||
+				attr.Key == "value" ||
+				attr.Key == "placeholder" ||
+				attr.Key == "checked" ||
+				attr.Key == "selected" ||
+				attr.Key == "disabled" ||
+				attr.Key == "readonly" ||
+				attr.Key == "required" ||
+				attr.Key == "action" ||
+				attr.Key == "method" {
+				// Simplify class attribute if too long
+				if attr.Key == "class" {
+					classes := strings.Fields(attr.Val)
+					if len(classes) > 3 {
+						attr.Val = strings.Join(classes[:3], " ")
+					}
+				}
+				// Truncate src/href if they're data URLs or very long
+				if (attr.Key == "src" || attr.Key == "href") && len(attr.Val) > 100 {
+					if strings.HasPrefix(attr.Val, "data:") {
+						attr.Val = "data:..."
+					} else if strings.HasPrefix(attr.Val, "blob:") {
+						attr.Val = "blob:..."
+					} else if len(attr.Val) > 100 {
+						attr.Val = attr.Val[:100] + "..."
+					}
+				}
+				preservedAttrs = append(preservedAttrs, attr)
+			}
+		}
+		node.Attr = preservedAttrs
+	})
+
+	// Normalize whitespace in text nodes
+	doc.Find("*").Each(func(i int, s *goquery.Selection) {
+		if s.Nodes == nil || len(s.Nodes) == 0 {
+			return
+		}
+		node := s.Nodes[0]
+		for c := node.FirstChild; c != nil; c = c.NextSibling {
+			if c.Type == html.TextNode {
+				// Collapse multiple spaces and trim
+				c.Data = strings.Join(strings.Fields(c.Data), " ")
+			}
+		}
+	})
+
+	// Get the cleaned HTML
+	cleanedHTML, err := doc.Html()
+	if err != nil {
+		return "", fmt.Errorf("failed to render cleaned HTML: %w", err)
+	}
+
+	return cleanedHTML, nil
+}
+
+// CleanHTMLMinimal provides the most aggressive HTML cleaning for minimal LLM context
+// Only preserves interactive elements and their immediate context
+func CleanHTMLMinimal(htmlContent string) (string, error) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse HTML: %w", err)
+	}
+
+	// Remove all non-essential elements
+	doc.Find("script, style, noscript, iframe, svg, link, meta, img, video, audio, canvas, embed, object, param, source, track").Remove()
+
+	// Build a minimal representation focused on interactive elements
+	var result strings.Builder
+	result.WriteString("<html><body>")
+
+	// Find all interactive elements
+	doc.Find("button, a, input, select, textarea, [role='button'], [onclick], [data-testid], [data-test]").Each(func(i int, s *goquery.Selection) {
+		tagName := goquery.NodeName(s)
+		result.WriteString("<")
+		result.WriteString(tagName)
+
+		// Add minimal attributes
+		if id, exists := s.Attr("id"); exists {
+			result.WriteString(fmt.Sprintf(` id="%s"`, id))
+		}
+		if testId, exists := s.Attr("data-testid"); exists {
+			result.WriteString(fmt.Sprintf(` data-testid="%s"`, testId))
+		} else if testId, exists := s.Attr("data-test"); exists {
+			result.WriteString(fmt.Sprintf(` data-test="%s"`, testId))
+		}
+		if href, exists := s.Attr("href"); exists && !strings.HasPrefix(href, "javascript:") {
+			if len(href) > 50 {
+				href = href[:50] + "..."
+			}
+			result.WriteString(fmt.Sprintf(` href="%s"`, href))
+		}
+		if inputType, exists := s.Attr("type"); exists {
+			result.WriteString(fmt.Sprintf(` type="%s"`, inputType))
+		}
+		if name, exists := s.Attr("name"); exists {
+			result.WriteString(fmt.Sprintf(` name="%s"`, name))
+		}
+		if ariaLabel, exists := s.Attr("aria-label"); exists {
+			result.WriteString(fmt.Sprintf(` aria-label="%s"`, ariaLabel))
+		}
+		if role, exists := s.Attr("role"); exists {
+			result.WriteString(fmt.Sprintf(` role="%s"`, role))
+		}
+		if placeholder, exists := s.Attr("placeholder"); exists {
+			result.WriteString(fmt.Sprintf(` placeholder="%s"`, placeholder))
+		}
+
+		result.WriteString(">")
+
+		// Add text content if it's short
+		text := strings.TrimSpace(s.Text())
+		if len(text) > 0 && len(text) < 50 {
+			result.WriteString(text)
+		} else if len(text) >= 50 {
+			result.WriteString(text[:47] + "...")
+		}
+
+		result.WriteString("</")
+		result.WriteString(tagName)
+		result.WriteString(">\n")
+	})
+
+	result.WriteString("</body></html>")
+	return result.String(), nil
 }
 
 // simplifyNode recursively simplifies HTML nodes
