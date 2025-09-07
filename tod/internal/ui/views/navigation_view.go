@@ -1939,6 +1939,10 @@ func (v *NavigationView) fillFormField(result InputResult) tea.Cmd {
 			return NavigationErrorMsg{Error: fmt.Errorf("form handler or field not available")}
 		}
 
+		// Store field information before clearing it
+		fieldType := v.pendingField.Type
+		fieldLabel := v.pendingField.Label
+
 		// Fill the field
 		if err := v.formHandler.FillField(v.pendingField, result.Value); err != nil {
 			return NavigationErrorMsg{Error: fmt.Errorf("failed to fill field: %w", err)}
@@ -1951,9 +1955,12 @@ func (v *NavigationView) fillFormField(result InputResult) tea.Cmd {
 		}
 
 		// If this was a new entry, potentially save it
-		if result.NewEntry && v.pendingField.Type == EmailField {
+		if result.NewEntry && fieldType == EmailField {
 			// TODO: Implement saving new user after collecting all required fields
 		}
+
+		// Continue with form filling - add history before clearing state
+		v.addHistory(fmt.Sprintf("→ Filled field: %s", fieldLabel))
 
 		// Reset modal state
 		v.awaitingInput = false
@@ -1964,8 +1971,6 @@ func (v *NavigationView) fillFormField(result InputResult) tea.Cmd {
 			return v.submitForm()()
 		}
 
-		// Continue with form filling
-		v.addHistory(fmt.Sprintf("→ Filled field: %s", v.pendingField.Label))
 		return NavigationCompleteMsg{
 			URL:     v.currentURL,
 			Success: true,
