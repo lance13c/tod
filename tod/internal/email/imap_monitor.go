@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
 	"github.com/emersion/go-message/mail"
+	"gopkg.in/yaml.v3"
 )
 
 // IMAPMonitor monitors IMAP server for incoming emails with magic links
@@ -77,6 +79,23 @@ func LoadIMAPConfigFromEnv() *IMAPConfig {
 		UseTLS:       os.Getenv("IMAP_SECURE") != "false", // Default to true
 		PollInterval: 5 * time.Second,
 	}
+}
+
+// LoadIMAPConfig loads IMAP configuration from the project's config file
+func LoadIMAPConfig(projectDir string) *IMAPConfig {
+	configPath := filepath.Join(projectDir, ".tod", "config.yaml")
+	data, err := ioutil.ReadFile(configPath)
+	if err != nil {
+		// Try environment variables as fallback
+		return LoadIMAPConfigFromEnv()
+	}
+	
+	var configData map[string]interface{}
+	if err := yaml.Unmarshal(data, &configData); err != nil {
+		return LoadIMAPConfigFromEnv()
+	}
+	
+	return LoadIMAPConfigFromFile(configData)
 }
 
 // LoadIMAPConfigFromFile loads IMAP configuration from config file
@@ -558,8 +577,9 @@ func extractMagicLinkFromContent(content string) string {
 	logging.Debug("[REGEX EXTRACT] Starting regex extraction on %d bytes", len(content))
 	
 	// First try: Look for URLs with auth-related keywords
+	// Updated regex to properly capture full URLs including query parameters
 	authURLRegex := regexp.MustCompile(
-		`https?://[^\s<>"']+(?:verify|auth|login|confirm|activate|magic|token|signin|sign-in)[^\s<>"']*`,
+		`https?://[^\s<>"']+(?:verify|auth|login|confirm|activate|magic|token|signin|sign-in)[^\s<>"']*(?:\?[^\s<>"']+)?`,
 	)
 	matches := authURLRegex.FindAllString(content, -1)
 	logging.Debug("[REGEX EXTRACT] Auth regex found %d matches", len(matches))
@@ -569,8 +589,12 @@ func extractMagicLinkFromContent(content string) string {
 		for i, match := range matches {
 			logging.Debug("[REGEX EXTRACT] Auth match %d: %s", i+1, match)
 		}
-		// Clean up the URL (remove any trailing punctuation)
-		cleanURL := strings.TrimRight(matches[0], ".,;:!?")
+		// Clean up the URL (remove any trailing punctuation but preserve query params)
+		cleanURL := matches[0]
+		// Only trim punctuation if it's not part of a valid URL character
+		cleanURL = strings.TrimRight(cleanURL, ".,;:!?)")
+		// Remove any trailing brackets or quotes that might have been captured
+		cleanURL = strings.TrimRight(cleanURL, "]}")
 		return cleanURL
 	}
 	

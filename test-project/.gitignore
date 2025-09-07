@@ -53,3 +53,6 @@ next-env.d.ts
 /public/uploads/
 /uploads/
 .duckdb/
+
+# Tod testing configuration
+.tod/

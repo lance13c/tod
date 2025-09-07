@@ -175,8 +175,17 @@ func (a *AuthFlowManager) AuthenticateWithContinuousEmailSupport(user *config.Te
 	// Start with basic authentication simulation
 	result := a.sessionManager.SimulateAuthentication(user)
 	
+	// Check if email client is configured
+	if a.emailClient == nil {
+		logging.Warn("Email client not configured - magic link would be sent to %s", user.Email)
+		result.Success = false
+		result.Message = fmt.Sprintf("Magic link would be sent to %s", user.Email)
+		result.Error = fmt.Errorf("email not configured")
+		return result
+	}
+	
 	// If email is configured and user has email, enhance with continuous email checking
-	if a.emailClient != nil && user.Email != "" && a.needsEmailCheck(user.AuthType) {
+	if user.Email != "" && a.needsEmailCheck(user.AuthType) {
 		logging.Info("📧 Continuous email checking enabled for %s (%s)", user.Name, user.Email)
 		
 		// Perform continuous email-enhanced authentication

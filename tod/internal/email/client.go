@@ -17,9 +17,10 @@ import (
 
 // Client provides email access functionality
 type Client struct {
-	service    *gmail.Service
-	userEmail  string
-	projectDir string
+	service     *gmail.Service
+	userEmail   string
+	projectDir  string
+	imapMonitor *IMAPMonitor // For IMAP-based email access
 }
 
 // Email represents a retrieved email message
@@ -43,8 +44,16 @@ type EmailConfig struct {
 	TokenExpiry  int64  `json:"token_expiry,omitempty"`
 }
 
-// NewClient creates a new email client with stored credentials
+// NewClient creates a new email client with stored credentials (Gmail or IMAP)
 func NewClient(projectDir string) (*Client, error) {
+	// First check if IMAP is configured
+	imapConfig := LoadIMAPConfig(projectDir)
+	if imapConfig.Host != "" && imapConfig.Username != "" {
+		// Use IMAP client wrapper
+		return NewIMAPClientWrapper(projectDir)
+	}
+	
+	// Fall back to Gmail API
 	config, err := loadEmailConfig(projectDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load email config: %w", err)
@@ -64,6 +73,12 @@ func NewClient(projectDir string) (*Client, error) {
 
 // GetRecentEmails fetches emails from the last specified duration
 func (c *Client) GetRecentEmails(since time.Duration) ([]*Email, error) {
+	// Use IMAP if available
+	if c.imapMonitor != nil {
+		return c.GetRecentEmailsViaIMAP(since)
+	}
+	
+	// Otherwise use Gmail API
 	// Calculate the query time
 	after := time.Now().Add(-since).Unix()
 	
