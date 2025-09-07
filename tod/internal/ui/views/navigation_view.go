@@ -1876,6 +1876,12 @@ type FormInputModalReadyMsg struct {
 	Field *FormField
 }
 
+// EmailScanningUpdateMsg is sent periodically during email scanning
+type EmailScanningUpdateMsg struct {
+	ElapsedTime time.Duration
+	Attempt     int
+}
+
 // addFormFieldsToElements adds form field actions to the elements list
 func (v *NavigationView) addFormFieldsToElements(elements *[]NavigableElement, form *LoginForm) {
 	if form == nil {
@@ -2125,7 +2131,7 @@ func (v *NavigationView) handleMagicLinkSent() tea.Cmd {
 			}
 		}
 
-		v.addHistory("📧 Checking email for magic link...")
+		v.addHistory("📧 Checking email for magic link (scanning every 5 seconds)...")
 
 		// Create a test user for the magic link authentication
 		testUser := &config.TestUser{
@@ -2138,8 +2144,38 @@ func (v *NavigationView) handleMagicLinkSent() tea.Cmd {
 			},
 		}
 
-		// Use the auth flow manager to authenticate with email support
-		authResult := v.authFlow.AuthenticateWithEmailSupport(testUser)
+		// Start periodic update messages in a goroutine
+		go func() {
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+			
+			attempts := 0
+			startTime := time.Now()
+			maxDuration := 2 * time.Minute
+			
+			for {
+				select {
+				case <-ticker.C:
+					attempts++
+					elapsed := time.Since(startTime)
+					if elapsed > maxDuration {
+						return
+					}
+					// Send update message (this will be handled in Update method)
+					v.addHistory(fmt.Sprintf("📧 Still scanning... (attempt %d, %v elapsed)", attempts, elapsed.Round(time.Second)))
+				case <-time.After(maxDuration):
+					return
+				}
+			}
+		}()
+
+		// Use the auth flow manager to authenticate with continuous email support
+		// Check every 5 seconds for up to 2 minutes
+		authResult := v.authFlow.AuthenticateWithContinuousEmailSupport(
+			testUser,
+			5*time.Second,  // Check every 5 seconds
+			2*time.Minute,  // Max timeout of 2 minutes
+		)
 
 		if authResult.Success && authResult.RedirectURL != "" {
 			v.addHistory(fmt.Sprintf("✅ Found magic link: %s", authResult.RedirectURL[:50]+"..."))

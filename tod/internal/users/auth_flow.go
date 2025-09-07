@@ -7,6 +7,7 @@ import (
 	"github.com/ciciliostudio/tod/internal/config"
 	"github.com/ciciliostudio/tod/internal/email"
 	"github.com/ciciliostudio/tod/internal/llm"
+	"github.com/ciciliostudio/tod/internal/logging"
 )
 
 // AuthFlowManager handles enhanced authentication flows with email checking
@@ -125,6 +126,71 @@ func (a *AuthFlowManager) handleMagicLinkAuth(user *config.TestUser, baseResult 
 	}
 	
 	return &enhancedResult
+}
+
+// handleMagicLinkAuthContinuous handles magic link authentication with continuous email checking
+func (a *AuthFlowManager) handleMagicLinkAuthContinuous(user *config.TestUser, baseResult *AuthenticationResult, checkInterval time.Duration, maxTimeout time.Duration) *AuthenticationResult {
+	logging.Info("🔗 Starting continuous scan for magic link email for %s (checking every %v)...", user.Email, checkInterval)
+	
+	// Wait for magic link email with continuous scanning
+	context := fmt.Sprintf("User '%s' just clicked 'Send Magic Link' button. Looking for magic link email.", user.Name)
+	
+	extractResult, err := a.extractor.WaitForAuthEmailContinuous(
+		a.emailClient,
+		email.AuthTypeMagicLink,
+		context,
+		checkInterval,
+		maxTimeout,
+	)
+	
+	if err != nil || !extractResult.Success {
+		result := &AuthenticationResult{
+			Success: false,
+			Message: fmt.Sprintf("Magic link email not found after %v: %s", maxTimeout, extractResult.Error),
+			Error:   fmt.Errorf("magic link email timeout"),
+		}
+		return result
+	}
+	
+	logging.Info("✅ Found magic link: %s", extractResult.Value)
+	
+	// Update the result with magic link
+	enhancedResult := *baseResult
+	enhancedResult.Success = true
+	enhancedResult.Message = "Magic link authentication ready"
+	enhancedResult.RedirectURL = extractResult.Value
+	
+	// Store the magic link in session data
+	if enhancedResult.Session != nil {
+		enhancedResult.Session.SessionData["magic_link"] = extractResult.Value
+		enhancedResult.Session.SessionData["auth_method"] = "email_verified"
+		a.sessionManager.UpdateSession(enhancedResult.Session)
+	}
+	
+	return &enhancedResult
+}
+
+// AuthenticateWithContinuousEmailSupport performs authentication with continuous email scanning
+func (a *AuthFlowManager) AuthenticateWithContinuousEmailSupport(user *config.TestUser, checkInterval time.Duration, maxTimeout time.Duration) *AuthenticationResult {
+	// Start with basic authentication simulation
+	result := a.sessionManager.SimulateAuthentication(user)
+	
+	// If email is configured and user has email, enhance with continuous email checking
+	if a.emailClient != nil && user.Email != "" && a.needsEmailCheck(user.AuthType) {
+		logging.Info("📧 Continuous email checking enabled for %s (%s)", user.Name, user.Email)
+		
+		// Perform continuous email-enhanced authentication
+		if user.AuthType == "magic_link" {
+			return a.handleMagicLinkAuthContinuous(user, result, checkInterval, maxTimeout)
+		}
+		// Fall back to regular handling for other auth types
+		emailResult := a.performEmailAuthentication(user, result)
+		if emailResult != nil {
+			return emailResult
+		}
+	}
+	
+	return result
 }
 
 // handleEmailVerification handles email verification code authentication

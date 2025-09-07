@@ -253,3 +253,45 @@ func (e *ExtractorService) WaitForAuthEmail(client *Client, authType AuthType, c
 		Error:   fmt.Sprintf("timeout waiting for %s email", authType),
 	}, nil
 }
+
+// WaitForAuthEmailContinuous polls for authentication emails continuously with configurable interval
+func (e *ExtractorService) WaitForAuthEmailContinuous(client *Client, authType AuthType, context string, checkInterval time.Duration, maxTimeout time.Duration) (*ExtractionResult, error) {
+	startTime := time.Now()
+	
+	// Default check interval to 5 seconds if not specified
+	if checkInterval == 0 {
+		checkInterval = 5 * time.Second
+	}
+	
+	// Default max timeout to 2 minutes if not specified
+	if maxTimeout == 0 {
+		maxTimeout = 2 * time.Minute
+	}
+
+	for time.Since(startTime) < maxTimeout {
+		// Get emails from the last 2 minutes (wider window for continuous scanning)
+		emails, err := client.GetRecentEmails(2 * time.Minute)
+		if err != nil {
+			time.Sleep(checkInterval)
+			continue
+		}
+
+		// Try to extract auth data
+		result, err := e.ExtractAuthData(emails, authType, context)
+		if err != nil {
+			time.Sleep(checkInterval)
+			continue
+		}
+
+		if result.Success {
+			return result, nil
+		}
+
+		time.Sleep(checkInterval)
+	}
+
+	return &ExtractionResult{
+		Success: false,
+		Error:   fmt.Sprintf("timeout waiting for %s email after %v", authType, maxTimeout),
+	}, nil
+}
