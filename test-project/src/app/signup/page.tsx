@@ -13,9 +13,15 @@ import {
   Checkbox,
   Divider,
   Progress,
-  Chip
+  Chip,
+  Accordion,
+  AccordionItem,
+  Modal,
+  ModalContent,
+  ModalBody,
+  Spinner
 } from "@nextui-org/react";
-import { Mail, User, Lock, Eye, EyeOff, ArrowRight, UserPlus, Shield } from "lucide-react";
+import { Mail, User, Lock, Eye, EyeOff, ArrowRight, UserPlus, Shield, Sparkles, ChevronDown, Send } from "lucide-react";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -30,6 +36,11 @@ export default function SignUpPage() {
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [magicLinkEmail, setMagicLinkEmail] = useState("");
+  const [magicLinkName, setMagicLinkName] = useState("");
+  const [magicLinkSent, setMagicLinkSent] = useState(false);
+  const [magicLinkLoading, setMagicLinkLoading] = useState(false);
+  const [magicLinkAgreed, setMagicLinkAgreed] = useState(false);
 
   const toggleVisibility = () => setIsVisible(!isVisible);
   const toggleConfirmVisibility = () => setIsConfirmVisible(!isConfirmVisible);
@@ -65,6 +76,34 @@ export default function SignUpPage() {
     if (passwordStrength < 60) return "Fair";
     if (passwordStrength < 80) return "Good";
     return "Strong";
+  };
+
+  const handleMagicLinkSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+
+    if (!magicLinkAgreed) {
+      setError("Please agree to the terms and conditions");
+      return;
+    }
+
+    setMagicLinkLoading(true);
+
+    try {
+      const result = await signUp.magicLink({
+        email: magicLinkEmail,
+        name: magicLinkName,
+      });
+      
+      if (result.data) {
+        setMagicLinkSent(true);
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to send magic link");
+      console.error(err);
+    } finally {
+      setMagicLinkLoading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

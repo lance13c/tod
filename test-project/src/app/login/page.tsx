@@ -16,9 +16,11 @@ import {
   Spinner,
   Modal,
   ModalContent,
-  ModalBody
+  ModalBody,
+  Accordion,
+  AccordionItem
 } from "@nextui-org/react";
-import { Mail, Lock, Eye, EyeOff, Sparkles, ArrowRight, Shield, Send } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, Sparkles, ArrowRight, Shield, Send, ChevronDown } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -209,104 +211,123 @@ export default function LoginPage() {
             </span>
           </div>
 
-          {/* Email/Password Section - SECONDARY */}
-          <form onSubmit={handleEmailPasswordLogin} className="flex flex-col gap-4">
-            <Input
-              placeholder="Enter your email"
-              type="email"
-              value={email}
-              onValueChange={setEmail}
-              variant="bordered"
-              size="lg"
-              startContent={
-                <div className="pointer-events-none flex items-center">
-                  <Mail className="w-4 h-4 text-default-400" />
-                </div>
-              }
-              isRequired
-              data-testid="email-input"
-              classNames={{
-                label: "text-default-600",
-                inputWrapper: "border-default-200 data-[hover=true]:border-default-300",
-                innerWrapper: "gap-3",
-              }}
-            />
-            
-            <Input
-              placeholder="Enter your password"
-              value={password}
-              onValueChange={setPassword}
-              variant="bordered"
-              size="lg"
-              startContent={
-                <div className="pointer-events-none flex items-center">
-                  <Lock className="w-4 h-4 text-default-400" />
-                </div>
-              }
-              endContent={
-                <button
-                  className="focus:outline-none"
-                  type="button"
-                  onClick={toggleVisibility}
-                  data-testid="toggle-password-visibility"
-                >
-                  {isVisible ? (
-                    <EyeOff className="w-4 h-4 text-default-400" />
-                  ) : (
-                    <Eye className="w-4 h-4 text-default-400" />
-                  )}
-                </button>
-              }
-              type={isVisible ? "text" : "password"}
-              isRequired
-              data-testid="password-input"
-              classNames={{
-                label: "text-default-600",
-                inputWrapper: "border-default-200 data-[hover=true]:border-default-300",
-                innerWrapper: "gap-3",
-              }}
-            />
-            
-            <div className="flex justify-between items-center mb-2">
-              <Checkbox 
-                isSelected={rememberMe} 
-                onValueChange={setRememberMe}
-                size="sm"
-                data-testid="remember-me-checkbox"
-                classNames={{
-                  wrapper: "after:bg-gradient-to-r after:from-gray-400 after:to-gray-500",
-                }}
-              >
-                <span className="text-small text-default-500">{" "}Remember me</span>
-              </Checkbox>
-              <Link
-                href="/forgot-password"
-                className="text-sm text-default-500 hover:text-primary hover:underline"
-                data-testid="forgot-password-link"
-              >
-                Forgot password?
-              </Link>
-            </div>
-            
-            {error && !magicLinkEmail && (
-              <Chip color="danger" variant="flat" className="w-full">
-                <span className="text-sm" data-testid="error-message">{error}</span>
-              </Chip>
-            )}
-            
-            <Button
-              type="submit"
-              className="bg-gradient-to-r from-gray-500 to-gray-600 text-white font-medium shadow hover:shadow-lg transition-all"
-              isLoading={isLoading}
-              fullWidth
-              size="lg"
-              data-testid="email-login-button"
-              startContent={!isLoading && <Lock className="w-4 h-4" />}
-              endContent={!isLoading && <ArrowRight className="w-4 h-4" />}
+          {/* Email/Password Section - SECONDARY (Collapsible) */}
+          <Accordion 
+            variant="light"
+            className="px-0"
+            itemClasses={{
+              base: "py-0",
+              title: "text-small text-default-500",
+              trigger: "px-2 py-2 data-[hover=true]:bg-default-100 rounded-lg transition-all",
+              indicator: "text-default-400",
+              content: "pt-0 pb-2"
+            }}
+          >
+            <AccordionItem
+              key="password-login"
+              aria-label="Sign in with password"
+              title="Use email and password instead"
+              indicator={<ChevronDown className="w-4 h-4" />}
             >
-              Sign In with Password
-            </Button>
-          </form>
+              <form onSubmit={handleEmailPasswordLogin} className="flex flex-col gap-4">
+                <Input
+                  placeholder="Enter your email"
+                  type="email"
+                  value={email}
+                  onValueChange={setEmail}
+                  variant="bordered"
+                  size="lg"
+                  startContent={
+                    <div className="pointer-events-none flex items-center">
+                      <Mail className="w-4 h-4 text-default-400" />
+                    </div>
+                  }
+                  isRequired
+                  data-testid="email-input"
+                  classNames={{
+                    label: "text-default-600",
+                    inputWrapper: "border-default-200 data-[hover=true]:border-default-300",
+                    innerWrapper: "gap-3",
+                  }}
+                />
+                
+                <Input
+                  placeholder="Enter your password"
+                  value={password}
+                  onValueChange={setPassword}
+                  variant="bordered"
+                  size="lg"
+                  startContent={
+                    <div className="pointer-events-none flex items-center">
+                      <Lock className="w-4 h-4 text-default-400" />
+                    </div>
+                  }
+                  endContent={
+                    <button
+                      className="focus:outline-none"
+                      type="button"
+                      onClick={toggleVisibility}
+                      data-testid="toggle-password-visibility"
+                    >
+                      {isVisible ? (
+                        <EyeOff className="w-4 h-4 text-default-400" />
+                      ) : (
+                        <Eye className="w-4 h-4 text-default-400" />
+                      )}
+                    </button>
+                  }
+                  type={isVisible ? "text" : "password"}
+                  isRequired
+                  data-testid="password-input"
+                  classNames={{
+                    label: "text-default-600",
+                    inputWrapper: "border-default-200 data-[hover=true]:border-default-300",
+                    innerWrapper: "gap-3",
+                  }}
+                />
+                
+                <div className="flex justify-between items-center mb-2">
+                  <Checkbox 
+                    isSelected={rememberMe} 
+                    onValueChange={setRememberMe}
+                    size="sm"
+                    data-testid="remember-me-checkbox"
+                    classNames={{
+                      wrapper: "after:bg-gradient-to-r after:from-gray-400 after:to-gray-500",
+                    }}
+                  >
+                    <span className="text-small text-default-500">{" "}Remember me</span>
+                  </Checkbox>
+                  <Link
+                    href="/forgot-password"
+                    className="text-sm text-default-500 hover:text-primary hover:underline"
+                    data-testid="forgot-password-link"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+                
+                {error && !magicLinkEmail && (
+                  <Chip color="danger" variant="flat" className="w-full">
+                    <span className="text-sm" data-testid="error-message">{error}</span>
+                  </Chip>
+                )}
+                
+                <Button
+                  type="submit"
+                  className="bg-gradient-to-r from-gray-500 to-gray-600 text-white font-medium shadow hover:shadow-lg transition-all"
+                  isLoading={isLoading}
+                  fullWidth
+                  size="lg"
+                  data-testid="email-login-button"
+                  startContent={!isLoading && <Lock className="w-4 h-4" />}
+                  endContent={!isLoading && <ArrowRight className="w-4 h-4" />}
+                >
+                  Sign In with Password
+                </Button>
+              </form>
+            </AccordionItem>
+          </Accordion>
 
           <Divider className="my-6" />
 
