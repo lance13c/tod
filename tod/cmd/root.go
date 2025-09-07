@@ -63,6 +63,8 @@ func initConfig() {
 	} else {
 		// Redirect standard log to our file logger
 		logging.RedirectStandardLog()
+		// Log the location of the log file for debugging
+		logging.Info("Tod logging initialized. Log file: %s", logging.GetLogger().GetLogPath())
 	}
 	
 	// Set log level based on verbose flag

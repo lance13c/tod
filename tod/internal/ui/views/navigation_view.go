@@ -533,7 +533,7 @@ func (v *NavigationView) analyzeCurrentPage() tea.Cmd {
 
 		// Wait for page to be fully loaded before analyzing
 		if err := v.chromeDPManager.WaitForPageLoad(5 * time.Second); err != nil {
-			fmt.Printf("Warning: page load wait failed: %v\n", err)
+			logging.Warn("Page load wait failed: %v", err)
 		}
 
 		// Get page info
@@ -541,16 +541,16 @@ func (v *NavigationView) analyzeCurrentPage() tea.Cmd {
 		v.currentURL = url
 		v.currentTitle = title
 
-		fmt.Printf("🔍 Analyzing page: %s (title: %s)\n", url, title)
+		logging.Info("Analyzing page: %s (title: %s)", url, title)
 
 		// Extract interactive elements
 		interactiveElements, err := v.chromeDPManager.ExtractInteractiveElements()
 		if err != nil {
-			fmt.Printf("❌ Failed to extract interactive elements: %v\n", err)
+			logging.Error("Failed to extract interactive elements: %v", err)
 			return PageAnalysisCompleteMsg{Error: err}
 		}
 
-		fmt.Printf("Found %d interactive elements\n", len(interactiveElements))
+		logging.Debug("Found %d interactive elements", len(interactiveElements))
 
 		// Convert to NavigableElements
 		var elements []NavigableElement
@@ -609,25 +609,25 @@ func (v *NavigationView) analyzeCurrentPage() tea.Cmd {
 
 		// Also detect forms if form handler is available
 		if v.formHandler != nil {
-			fmt.Printf("Form handler available, detecting forms on %s...\n", url)
+			logging.Debug("Form handler available, detecting forms on %s...", url)
 			if form, err := v.formHandler.DetectLoginForm(); err == nil && form != nil {
-				fmt.Printf("✅ Form detected: Domain=%s, EmailField=%v, PasswordField=%v, IsMagicLink=%v, IsComplete=%v\n", 
+				logging.Info("Form detected: Domain=%s, EmailField=%v, PasswordField=%v, IsMagicLink=%v, IsComplete=%v", 
 					form.Domain, form.EmailField != nil, form.PasswordField != nil, form.IsMagicLink, form.IsComplete)
 				v.currentForm = form
 				v.addFormFieldsToElements(&elements, form)
-				fmt.Printf("Added %d form field actions to elements\n", countFormFields(form))
+				logging.Debug("Added %d form field actions to elements", countFormFields(form))
 			} else {
 				if err != nil {
-					fmt.Printf("❌ Form detection failed: %v\n", err)
+					logging.Error("Form detection failed: %v", err)
 				} else {
-					fmt.Printf("⚠️ No forms detected on page\n")
+					logging.Debug("No forms detected on page")
 				}
 			}
 		} else {
-			fmt.Printf("⚠️ Form handler not available\n")
+			logging.Warn("Form handler not available")
 		}
 
-		fmt.Printf("✅ Page analysis complete: %d total navigable elements\n", len(elements))
+		logging.Info("Page analysis complete: %d total navigable elements", len(elements))
 		return PageAnalysisCompleteMsg{Elements: elements}
 	}
 }
@@ -1571,6 +1571,8 @@ func (v *NavigationView) addHistory(message string) {
 	if len(v.history) > v.maxHistory {
 		v.history = v.history[1:] // Remove oldest message
 	}
+	// Also log the history message to file
+	logging.Info("[UI] %s", message)
 }
 
 // truncateText truncates text to maxLen and adds "..." if needed
