@@ -32,11 +32,12 @@ func NewFlowAgent(cfg *config.Config, projectRoot string) (*DefaultFlowAgent, er
 		return nil, fmt.Errorf("failed to create LLM client: %w", err)
 	}
 
-	// Create scanner
+	// Create scanner (set Silent to true to avoid console output in TUI mode)
 	scanner := discovery.NewScanner(projectRoot, discovery.ScanOptions{
 		Framework: cfg.Testing.Framework,
 		Language:  cfg.Testing.Language,
 		SkipLLM:   false,
+		Silent:    true, // Suppress console output when running in TUI
 	}, cfg)
 
 	// Load user config

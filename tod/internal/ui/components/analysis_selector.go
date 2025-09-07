@@ -39,7 +39,7 @@ type CostEstimate struct {
 func RunAnalysisSelector(projectRoot string, client llm.Client) (*AnalysisChoice, error) {
 	reader := bufio.NewReader(os.Stdin)
 	
-	fmt.Println("\n🤖 Would you like AI to analyze your codebase for actions? (Recommended)")
+	fmt.Println("\n🤖 Would you like Tod to analyze your codebase?")
 	fmt.Println()
 	
 	// Discover route directories

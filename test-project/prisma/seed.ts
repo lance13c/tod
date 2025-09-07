@@ -7,6 +7,9 @@ async function main() {
   console.log('🌱 Starting database seed...');
 
   // Clean existing data (optional - comment out if you want to preserve data)
+  await prisma.groupFile.deleteMany();
+  await prisma.groupMember.deleteMany();
+  await prisma.group.deleteMany();
   await prisma.organizationMember.deleteMany();
   await prisma.organization.deleteMany();
   await prisma.verification.deleteMany();
@@ -125,7 +128,7 @@ async function main() {
 
   console.log('✅ Created admin user:', adminUser.email);
 
-  // Create test organizations
+  // Create test organizations with branding
   const org1 = await prisma.organization.create({
     data: {
       id: 'org-1',
@@ -145,6 +148,8 @@ async function main() {
       linkedin: 'acme-corporation',
       tags: 'saas,b2b,enterprise,cloud',
       logo: 'https://api.dicebear.com/7.x/identicon/svg?seed=acme',
+      logoUrl: 'https://api.dicebear.com/7.x/identicon/svg?seed=acme',
+      brandColor: '#FF6B6B',
       founded: '2015',
       viewCount: 1250,
       ownerId: testUser2.id,
@@ -383,6 +388,161 @@ async function main() {
 
   console.log('✅ Created test session for user 2');
 
+  // Create test groups with organization branding
+  const group1 = await prisma.group.create({
+    data: {
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      name: 'Team Standup - Q1 Planning',
+      description: 'Quarterly planning session for the engineering team',
+      organizationId: org1.id,
+      creatorId: testUser2.id,
+      latitude: 37.7749,
+      longitude: -122.4194,
+      radius: 100,
+      expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000), // 2 hours from now (active)
+      extendedCount: 0,
+      storageFolder: '550e8400-e29b-41d4-a716-446655440000',
+      isActive: true,
+      createdAt: new Date(Date.now() - 60 * 60 * 1000), // Created 1 hour ago
+    }
+  });
+
+  // Add members to group1
+  await prisma.groupMember.create({
+    data: {
+      groupId: group1.id,
+      userId: testUser2.id,
+      role: 'creator',
+      joinedLatitude: 37.7749,
+      joinedLongitude: -122.4194,
+    }
+  });
+
+  await prisma.groupMember.create({
+    data: {
+      groupId: group1.id,
+      userId: adminUser.id,
+      role: 'participant',
+      joinedLatitude: 37.7750,
+      joinedLongitude: -122.4195,
+    }
+  });
+
+  await prisma.groupMember.create({
+    data: {
+      groupId: group1.id,
+      userId: testUser1.id,
+      role: 'participant',
+      joinedLatitude: 37.7748,
+      joinedLongitude: -122.4193,
+    }
+  });
+
+  console.log('✅ Created active group 1:', group1.name);
+
+  const group2 = await prisma.group.create({
+    data: {
+      id: '6ba7b810-9dad-11d1-80b4-00c04fd430c8',
+      name: 'Design Review Session',
+      description: 'Review of new UI designs for the mobile app',
+      organizationId: org2.id,
+      creatorId: adminUser.id,
+      latitude: 30.2672,
+      longitude: -97.7431,
+      radius: 100,
+      expiresAt: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago (expired)
+      extendedCount: 2,
+      storageFolder: '6ba7b810-9dad-11d1-80b4-00c04fd430c8',
+      isActive: false,
+      isArchived: true,
+      createdAt: new Date(Date.now() - 8 * 60 * 60 * 1000), // Created 8 hours ago
+    }
+  });
+
+  // Add members to group2
+  await prisma.groupMember.create({
+    data: {
+      groupId: group2.id,
+      userId: adminUser.id,
+      role: 'creator',
+      joinedLatitude: 30.2672,
+      joinedLongitude: -97.7431,
+    }
+  });
+
+  await prisma.groupMember.create({
+    data: {
+      groupId: group2.id,
+      userId: testUser2.id,
+      role: 'participant',
+      joinedLatitude: 30.2673,
+      joinedLongitude: -97.7432,
+    }
+  });
+
+  console.log('✅ Created expired group 2:', group2.name);
+
+  const group3 = await prisma.group.create({
+    data: {
+      id: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+      name: 'Coffee Break Meetup',
+      description: 'Informal team gathering',
+      organizationId: null, // No organization
+      creatorId: testUser1.id,
+      latitude: 40.7128,
+      longitude: -74.0060,
+      radius: 50,
+      expiresAt: new Date(Date.now() + 3 * 60 * 60 * 1000), // 3 hours from now
+      extendedCount: 0,
+      storageFolder: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+      isActive: true,
+      createdAt: new Date(Date.now() - 30 * 60 * 1000), // Created 30 minutes ago
+    }
+  });
+
+  // Add members to group3
+  await prisma.groupMember.create({
+    data: {
+      groupId: group3.id,
+      userId: testUser1.id,
+      role: 'creator',
+      joinedLatitude: 40.7128,
+      joinedLongitude: -74.0060,
+    }
+  });
+
+  console.log('✅ Created group 3 (no org):', group3.name);
+
+  // Create sample files for group1
+  await prisma.groupFile.create({
+    data: {
+      filename: 'q1-planning.pdf',
+      originalName: 'Q1 Planning Document.pdf',
+      mimetype: 'application/pdf',
+      size: 2048576, // 2MB
+      path: '550e8400-e29b-41d4-a716-446655440000/q1-planning.pdf',
+      uploaderId: testUser2.id,
+      groupId: group1.id,
+      isFromCreator: true,
+    }
+  });
+
+  await prisma.groupFile.create({
+    data: {
+      filename: 'roadmap.png',
+      originalName: 'Product Roadmap 2025.png',
+      mimetype: 'image/png',
+      size: 1024768,
+      path: '550e8400-e29b-41d4-a716-446655440000/roadmap.png',
+      uploaderId: adminUser.id,
+      groupId: group1.id,
+      isFromCreator: false,
+      thumbnailPath: '550e8400-e29b-41d4-a716-446655440000/thumbnails/roadmap_thumb.png',
+    }
+  });
+
+  console.log('✅ Created sample files for group 1');
+
   console.log('\n🎉 Database seeding completed successfully!');
   console.log('\n📝 Test Credentials:');
   console.log('───────────────────────────────────────');
@@ -391,12 +551,16 @@ async function main() {
   console.log('Email: admin@example.com | Username: admin | Password: Password123!');
   console.log('───────────────────────────────────────');
   console.log('\n🏢 Test Organizations:');
-  console.log('- Acme Corporation (public, featured, verified)');
+  console.log('- Acme Corporation (public, featured, verified, brand: #FF6B6B)');
   console.log('- TechStart Inc (public, verified)');
   console.log('- Private Ventures (private)');
   console.log('- Green Energy Solutions (public, featured)');
   console.log('- Healthcare Innovations (public, verified)');
   console.log('- Plus 10 more test organizations for pagination');
+  console.log('\n👥 Test Groups:');
+  console.log('- Team Standup - Q1 Planning (Active, Acme Corp, expires in 2h)');
+  console.log('- Design Review Session (Expired/Archived, TechStart Inc)');
+  console.log('- Coffee Break Meetup (Active, No org, expires in 3h)');
 }
 
 main()

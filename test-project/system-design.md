@@ -1,17 +1,20 @@
 GroupUp MVP - System Design Document
 1. System Overview
-GroupUp MVP is a simplified proximity-based onboarding utility that allows users to quickly connect with those around them and share document/photos/links/credentials 
+GroupUp MVP is a simplified proximity-based sharing platform that allows users and organizations to create time-limited sharing groups at specific locations.
 
 Core Features (MVP)
 
-Email/password magic link sign in. Show the last auth method a user used (based on local storage flag)
-Create/join geo-locked sharing sessions
-Have a guest/no login needed page that just asks for geolocation, checks a sqlite db for what building polygon (based on https://github.com/microsoft/USBuildingFootprints?tab=readme-ov-file) geojson files, which building the user is currently it, then setup a webrtc connection with all other participants.
-Upload and share documents to the webrtc. Source phone/computer has to stay awake/on (the files aren't really uploaded, they are transmitted directly)
-Grid-based document/photo gallery (like immich)
+Email/magic link authentication (prioritizing magic link)
+Create location-based sharing groups with organization branding
+View history of groups (started vs participated)
+4-hour group expiration with extension capability
+Organization branding (name, logo) visible to group participants
+UUID-based file storage folders per group
+WebRTC direct file sharing (peer-to-peer)
+Building detection using Microsoft Building Footprints GeoJSON
+Grid-based document/photo gallery
 Mobile-responsive design
-Persistent user sessions and documents (have the user be presented an option for logging in)
-Easy to understand, keep it simple - stupid, frontpage that describes how this is a 
+Guest access for quick sharing without login 
 
 2. Architecture Diagram
 ┌─────────────────────────────────────────────────────────────┐
@@ -103,6 +106,8 @@ model User {
   documents     Document[]
   participants  Participant[]
   accounts      Account[]
+  groups        Group[]        // Groups created by user
+  groupMembers  GroupMember[]  // Groups participated in
 }
 
 model Account {
@@ -124,6 +129,73 @@ model Account {
   @@unique([provider, providerAccountId])
 }
 
+model Organization {
+  id              String   @id @default(cuid())
+  name            String
+  slug            String   @unique
+  logoUrl         String?  // URL to organization logo
+  brandColor      String?  // Hex color for branding
+  description     String?
+  website         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  groups          Group[]
+}
+
+model Group {
+  id              String   @id @default(uuid()) // UUID for folder naming
+  name            String
+  description     String?
+  organizationId  String?
+  creatorId       String
+  latitude        Float
+  longitude       Float
+  radius          Int      @default(100) // meters
+  expiresAt       DateTime // 4 hours from creation by default
+  extendedCount   Int      @default(0) // Track number of extensions
+  storageFolder   String   @unique // UUID folder path
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  creator         User          @relation(fields: [creatorId], references: [id])
+  organization    Organization? @relation(fields: [organizationId], references: [id])
+  members         GroupMember[]
+  files           GroupFile[]
+}
+
+model GroupMember {
+  id              String   @id @default(cuid())
+  groupId         String
+  userId          String
+  role            String   @default("participant") // "creator" or "participant"
+  joinedAt        DateTime @default(now())
+  latitude        Float?   // Location when joined
+  longitude       Float?
+  
+  group           Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userId], references: [id])
+  
+  @@unique([groupId, userId])
+}
+
+model GroupFile {
+  id              String   @id @default(cuid())
+  filename        String
+  originalName    String
+  mimetype        String
+  size            Int
+  path            String   // Path within UUID folder
+  uploaderId      String
+  groupId         String
+  isFromCreator   Boolean  // Mark files from group creator
+  createdAt       DateTime @default(now())
+  
+  group           Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+}
+
+// Legacy Session model (kept for compatibility)
 model Session {
   id              String   @id @default(cuid())
   code            String   @unique // 6-character code
@@ -178,21 +250,36 @@ GET    /api/auth/signin/github    // GitHub SSO
 POST   /api/auth/signout          // Logout
 GET    /api/auth/session          // Get current session
 Application Endpoints
-typescript// Sessions
+typescript// Groups
+POST   /api/groups                 // Create new group
+GET    /api/groups                 // List user's groups (created & participated)
+GET    /api/groups/:id             // Get group details
+POST   /api/groups/:id/join        // Join group (with location verification)
+POST   /api/groups/:id/extend      // Extend group expiration (creator only)
+DELETE /api/groups/:id             // Delete group (creator only)
+
+// Organizations
+POST   /api/organizations          // Create organization
+GET    /api/organizations          // List organizations
+GET    /api/organizations/:slug    // Get organization by slug
+PUT    /api/organizations/:id      // Update organization (branding, etc.)
+POST   /api/organizations/:id/logo // Upload organization logo
+
+// Group Files
+POST   /api/groups/:id/files       // Upload file to group
+GET    /api/groups/:id/files       // List group files
+GET    /api/files/:id              // Download file
+DELETE /api/files/:id              // Delete file (uploader only)
+
+// Location
+POST   /api/groups/:id/verify-location  // Verify user location for group
+
+// Legacy Sessions (kept for compatibility)
 POST   /api/sessions              // Create new session
 GET    /api/sessions              // List user's sessions
 GET    /api/sessions/:code        // Get session by code
 POST   /api/sessions/:code/join   // Join session (with location)
 DELETE /api/sessions/:id          // Delete session
-
-// Documents
-POST   /api/documents             // Upload document
-GET    /api/documents             // List user's documents
-GET    /api/documents/:id         // Download document
-DELETE /api/documents/:id         // Delete document
-
-// Location
-POST   /api/sessions/:code/verify-location  // Verify user location
 6. Page Structure
 app/
 ├── (auth)/
@@ -205,8 +292,22 @@ app/
 ├── (app)/
 │   ├── layout.tsx            // Authenticated layout
 │   ├── page.tsx              // Dashboard/Home
+│   ├── dashboard/
+│   │   └── page.tsx          // Dashboard with groups list
+│   ├── groups/
+│   │   ├── page.tsx          // My groups list
+│   │   ├── new/
+│   │   │   └── page.tsx      // Create group with organization
+│   │   └── [id]/
+│   │       └── page.tsx      // Group detail/files
+│   ├── organizations/
+│   │   ├── page.tsx          // Organizations list
+│   │   ├── new/
+│   │   │   └── page.tsx      // Create organization
+│   │   └── [slug]/
+│   │       └── page.tsx      // Organization detail
 │   ├── sessions/
-│   │   ├── page.tsx          // My sessions list
+│   │   ├── page.tsx          // Legacy sessions list
 │   │   ├── new/
 │   │   │   └── page.tsx      // Create session
 │   │   └── [code]/
@@ -234,17 +335,37 @@ components/
 │   ├── SSOButtons.tsx        // Google/GitHub buttons
 │   └── AuthGuard.tsx         // Route protection
 │
+├── groups/
+│   ├── GroupCard.tsx         // Group preview with org branding
+│   ├── GroupList.tsx         // List with started/participated filter
+│   ├── CreateGroupForm.tsx   // New group with organization select
+│   ├── JoinGroupForm.tsx     // Join group with location
+│   ├── GroupTimer.tsx        // 4-hour countdown with extend option
+│   └── GroupBranding.tsx     // Organization branding display
+│
+├── organizations/
+│   ├── OrgCard.tsx           // Organization card with logo
+│   ├── OrgSelector.tsx       // Organization dropdown/selector
+│   ├── OrgLogoUpload.tsx     // Logo upload component
+│   └── OrgBrandingForm.tsx   // Edit org branding
+│
+├── files/
+│   ├── FileGrid.tsx          // Grid layout with creator badges
+│   ├── FileCard.tsx          // File preview with metadata
+│   ├── FileUploadZone.tsx    // Drag & drop for group files
+│   └── FileViewer.tsx        // Preview modal
+│
 ├── sessions/
-│   ├── SessionCard.tsx       // Session preview card
-│   ├── SessionList.tsx       // List of sessions
-│   ├── CreateSessionForm.tsx // New session form
-│   └── JoinSessionForm.tsx   // Join with code + location
+│   ├── SessionCard.tsx       // Legacy session card
+│   ├── SessionList.tsx       // Legacy sessions list
+│   ├── CreateSessionForm.tsx // Legacy session form
+│   └── JoinSessionForm.tsx   // Legacy join form
 │
 ├── documents/
-│   ├── DocumentGrid.tsx      // Masonry grid layout
-│   ├── DocumentCard.tsx      // Document preview
-│   ├── UploadDropzone.tsx    // Drag & drop upload
-│   └── DocumentViewer.tsx    // Preview modal
+│   ├── DocumentGrid.tsx      // Legacy document grid
+│   ├── DocumentCard.tsx      // Legacy document card
+│   ├── UploadDropzone.tsx    // Legacy upload
+│   └── DocumentViewer.tsx    // Legacy preview
 │
 └── shared/
     ├── Layout.tsx            // App shell
@@ -410,31 +531,46 @@ GOOGLE_CLIENT_SECRET=<oauth-secret>
 GITHUB_CLIENT_ID=<oauth-client-id>
 GITHUB_CLIENT_SECRET=<oauth-secret>
 UPLOAD_DIR=/app/uploads
+GROUP_STORAGE_DIR=/app/groups  # UUID-based group folders
 MAX_FILE_SIZE=10485760  # 10MB
+GROUP_EXPIRATION_HOURS=4  # Default group expiration
+MAX_GROUP_EXTENSIONS=3  # Maximum times a group can be extended
+ORG_LOGO_MAX_SIZE=2097152  # 2MB for organization logos
 13. MVP Feature Scope
 Phase 1 (Week 1-2)
 
-✅ Basic authentication (email/password)
-✅ Create/join sessions with codes
-✅ Upload documents
-✅ SQLite database setup
-✅ Docker configuration
+✅ Magic link authentication (primary)
+✅ Email/password authentication (secondary)
+✅ Group creation with organization branding
+✅ UUID-based file storage folders
+✅ 4-hour group expiration
+✅ Dashboard with group history
 
 Phase 2 (Week 3-4)
 
-✅ SSO integration (Google/GitHub)
-✅ Document grid gallery
+✅ Organization management (logos, branding)
+✅ Group extension capability
+✅ File grid with creator badges
 ✅ Mobile responsive design
 ✅ Location verification
-✅ Session expiration
+✅ Differentiate started vs participated groups
+
+Phase 3 (Week 5-6)
+
+⏳ WebRTC peer-to-peer file sharing
+⏳ Real-time updates (WebSockets)
+⏳ File previews and thumbnails
+⏳ Share groups via QR codes
+⏳ Advanced search/filters
+⏳ Analytics dashboard
 
 Post-MVP
 
-⏳ Real-time updates (WebSockets)
-⏳ File previews
-⏳ Share via QR codes
-⏳ Advanced search/filters
+⏳ Multiple organization membership
+⏳ Group templates
+⏳ Scheduled groups
 ⏳ Admin dashboard
+⏳ API for third-party integrations
 
 14. Testing Strategy
 End-to-End Testing with Playwright
@@ -562,4 +698,94 @@ jobs:
           path: playwright-report/
           retention-days: 30
 
-This system design provides a solid foundation for the GroupUp MVP with a focus on simplicity, mobile-friendliness, comprehensive testing with Playwright, and quick deployment using Docker and SQLite.
+15. Group Features Implementation Details
+
+Group Lifecycle
+
+1. **Creation**: User selects organization (optional), sets location, creates group
+2. **UUID Generation**: System generates UUID for group ID and storage folder
+3. **Expiration Timer**: 4-hour countdown starts upon creation
+4. **Extensions**: Creator can extend up to 3 times (4 hours each)
+5. **Archival**: Expired groups become read-only, files remain accessible
+
+Organization Branding
+
+- **Logo Requirements**: Max 2MB, supports PNG/JPG/SVG
+- **Brand Colors**: Hex color codes for consistent theming
+- **Display**: Organization branding shown prominently in group UI
+- **Verification**: Optional organization verification for trusted brands
+
+File Storage Structure
+
+bash/app/groups/
+├── 550e8400-e29b-41d4-a716-446655440000/  # Group UUID folder
+│   ├── metadata.json                       # Group metadata
+│   ├── files/
+│   │   ├── user1_file1.pdf
+│   │   ├── user2_image.jpg
+│   │   └── creator_document.docx
+│   └── thumbnails/                        # Generated thumbnails
+│       ├── user2_image_thumb.jpg
+│       └── ...
+├── 6ba7b810-9dad-11d1-80b4-00c04fd430c8/
+│   └── ...
+
+Dashboard Features
+
+- **Group Filters**: Active, Expired, Started by Me, Participated
+- **Search**: By organization, location, date range
+- **Quick Actions**: Start new group, rejoin active group, view files
+- **Statistics**: Total groups, files shared, active participants
+
+Group Permissions
+
+| Action | Creator | Participant | Guest |
+|--------|---------|-------------|-------|
+| View group | ✓ | ✓ | ✓ (with link) |
+| Upload files | ✓ | ✓ | ✗ |
+| Delete own files | ✓ | ✓ | ✗ |
+| Delete any files | ✓ | ✗ | ✗ |
+| Extend expiration | ✓ | ✗ | ✗ |
+| Edit group info | ✓ | ✗ | ✗ |
+| End group early | ✓ | ✗ | ✗ |
+
+API Response Examples
+
+typescript// GET /api/groups response
+{
+  "started": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "Team Standup",
+      "organization": {
+        "name": "Acme Corp",
+        "logoUrl": "/logos/acme.png",
+        "brandColor": "#FF6B6B"
+      },
+      "expiresAt": "2025-01-06T16:00:00Z",
+      "memberCount": 5,
+      "fileCount": 12,
+      "role": "creator"
+    }
+  ],
+  "participated": [
+    {
+      "id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+      "name": "Design Review",
+      "organization": null,
+      "expiresAt": "2025-01-06T14:30:00Z",
+      "memberCount": 3,
+      "fileCount": 8,
+      "role": "participant"
+    }
+  ]
+}
+
+WebRTC Integration (Future)
+
+- **Signaling Server**: Coordinate peer connections
+- **STUN/TURN**: Handle NAT traversal
+- **Chunking**: Large file transfer optimization
+- **Fallback**: Server relay for failed P2P connections
+
+This system design provides a solid foundation for the GroupUp MVP with organization branding, time-limited groups, UUID-based storage, and clear differentiation between group creators and participants. The architecture supports future expansion with WebRTC peer-to-peer sharing while maintaining a simple, mobile-friendly user experience.

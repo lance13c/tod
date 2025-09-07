@@ -1,5 +1,6 @@
 import { createTRPCRouter } from '@/server/trpc';
 import { organizationRouter } from './routers/organization';
+import { shareSessionRouter } from './routers/share-session';
 
 /**
  * This is the primary router for your server.
@@ -7,6 +8,7 @@ import { organizationRouter } from './routers/organization';
  */
 export const appRouter = createTRPCRouter({
   organization: organizationRouter,
+  shareSession: shareSessionRouter,
 });
 
 // export type definition of API

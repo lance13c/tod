@@ -149,3 +149,8 @@ venv/
 
 # Misc
 tod/test-project*
+
+test-project/.tod/
+
+# Notarization credentials
+.notarization-credentials

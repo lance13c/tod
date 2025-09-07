@@ -21,7 +21,9 @@ type ViewState int
 const (
 	ViewMenu ViewState = iota
 	ViewAdventure
-	ViewFlow
+	ViewChatAdventure
+	ViewNavigation
+	ViewChromeDebugger
 	ViewEmail
 	ViewResults
 	ViewSettings
@@ -36,16 +38,22 @@ type Model struct {
 	// Configuration
 	config *config.Config
 	projectRoot string
+	program *tea.Program // Reference to the program for views that need it
 	
 	// Views
 	adventureView *views.AdventureView
-	flowView      *views.FlowView
+	chatAdventureView tea.Model // Can be either ChatAdventureView or ChatAdventureV2View
+	navigationView *views.NavigationView
+	chromeDebuggerView *views.ChromeDebuggerView
 	
 	// Menu state
 	menuList list.Model
 	
 	// Global styles
 	styles *Styles
+	
+	// Special flags
+	requestRestart bool // Set to true when user requests configuration restart
 }
 
 // MenuItem represents a menu item
@@ -64,15 +72,77 @@ func NewModel(cfg *config.Config) *Model {
 	return NewModelWithRoot(cfg, ".")
 }
 
+// ShouldRestartConfig returns true if the user requested configuration restart
+func (m *Model) ShouldRestartConfig() bool {
+	return m.requestRestart
+}
+
+// CleanupAllViews cleans up resources from all views
+func (m *Model) CleanupAllViews() {
+	// Clean up adventure view
+	if m.adventureView != nil {
+		m.adventureView.Cleanup()
+	}
+	
+	// Clean up chat adventure view
+	if m.chatAdventureView != nil {
+		if v, ok := m.chatAdventureView.(interface{ Cleanup() }); ok {
+			v.Cleanup()
+		}
+	}
+	
+	// Clean up navigation view
+	if m.navigationView != nil {
+		m.navigationView.Cleanup()
+	}
+	
+	// Clean up chrome debugger view
+	// Note: ChromeDebuggerView uses the global Chrome manager, 
+	// which will be cleaned up below
+	
+	// Ensure global Chrome is closed
+	browser.CloseGlobalChromeDPManager()
+}
+
+// NewModelWithInitialView creates a new main model with a specific initial view
+func NewModelWithInitialView(cfg *config.Config, initialView ViewState) *Model {
+	model := NewModelWithRoot(cfg, ".")
+	model.currentView = initialView
+	
+	// Initialize the appropriate view based on initialView
+	switch initialView {
+	case ViewChromeDebugger:
+		model.chromeDebuggerView = views.NewChromeDebuggerView()
+	case ViewChatAdventure:
+		model.chatAdventureView = views.NewChatAdventureV2View(cfg)
+		// Program reference will be set later in SetProgram method
+	case ViewNavigation:
+		model.navigationView = views.NewNavigationView(cfg)
+	}
+	
+	return model
+}
+
 // NewModelWithRoot creates a new main model with project root
 func NewModelWithRoot(cfg *config.Config, projectRoot string) *Model {
 	// Create menu items
 	items := []list.Item{
 		MenuItem{
-			title:       "AI Flow Discovery",
-			description: "Let AI find and run flows in your app",
+			title:       "Tod Adventure Mode",
+			description: "AI-powered conversational testing assistant",
+		},
+		MenuItem{
+			title:       "Navigation Mode",
+			description: "Fast CLI-based website navigation with smart autocomplete",
 			action: func() tea.Cmd {
-				return showFlowView()
+				return showNavigationView()
+			},
+		},
+		MenuItem{
+			title:       "Chrome Test Discovery",
+			description: "Open Chrome debugger and discover untested actions",
+			action: func() tea.Cmd {
+				return showChromeDebuggerView()
 			},
 		},
 		MenuItem{
@@ -108,9 +178,6 @@ func NewModelWithRoot(cfg *config.Config, projectRoot string) *Model {
 	menuList.SetFilteringEnabled(false)
 	menuList.SetShowPagination(false)
 
-	// Initialize flow view (but don't create it until needed)
-	var flowView *views.FlowView
-
 	// Create adventure view
 	adventureView := views.NewAdventureView(cfg)
 
@@ -140,21 +207,40 @@ func NewModelWithRoot(cfg *config.Config, projectRoot string) *Model {
 		config:        cfg,
 		projectRoot:   projectRoot,
 		adventureView: adventureView,
-		flowView:      flowView,
 		menuList:      menuList,
 		styles:        NewStyles(),
 	}
 }
 
-// showFlowView returns a command to show the flow view
-func showFlowView() tea.Cmd {
+func showChromeDebuggerView() tea.Cmd {
 	return func() tea.Msg {
-		return ShowFlowViewMsg{}
+		return ShowChromeDebuggerViewMsg{}
+	}
+}
+
+func showNavigationView() tea.Cmd {
+	return func() tea.Msg {
+		return ShowNavigationViewMsg{}
 	}
 }
 
 // Init implements tea.Model
 func (m *Model) Init() tea.Cmd {
+	// Initialize the appropriate view based on current view
+	switch m.currentView {
+	case ViewChromeDebugger:
+		if m.chromeDebuggerView != nil {
+			return m.chromeDebuggerView.Init()
+		}
+	case ViewChatAdventure:
+		if m.chatAdventureView != nil {
+			return m.chatAdventureView.Init()
+		}
+	case ViewNavigation:
+		if m.navigationView != nil {
+			return m.navigationView.Init()
+		}
+	}
 	return nil
 }
 
@@ -166,9 +252,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
+			// Clean up all resources before quitting
+			m.CleanupAllViews()
 			return m, tea.Quit
 		case "esc":
 			if m.currentView != ViewMenu {
+				// Clean up resources when leaving views
+				if m.currentView == ViewAdventure && m.adventureView != nil {
+					m.adventureView.Cleanup()
+				}
+				if m.currentView == ViewChatAdventure && m.chatAdventureView != nil {
+					// Call cleanup if the view implements it
+					if v, ok := m.chatAdventureView.(interface{ Cleanup() }); ok {
+						v.Cleanup()
+					}
+				}
+				if m.currentView == ViewNavigation && m.navigationView != nil {
+					m.navigationView.Cleanup()
+				}
 				m.currentView = ViewMenu
 				return m, nil
 			}
@@ -181,27 +282,73 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.menuList.SetHeight(msg.Height - 10) // Leave space for header/footer
 		
 		// Update adventure view dimensions
-		m.adventureView, _ = m.adventureView.Update(msg)
+		adventureModel, _ := m.adventureView.Update(msg)
+		m.adventureView = adventureModel.(*views.AdventureView)
 		
-		// Update flow view if it exists
-		if m.flowView != nil {
-			var flowModel tea.Model
-			flowModel, _ = m.flowView.Update(msg)
-			m.flowView = flowModel.(*views.FlowView)
+		// Update chat adventure view if it exists
+		if m.chatAdventureView != nil {
+			m.chatAdventureView, _ = m.chatAdventureView.Update(msg)
+		}
+		
+		// Update chrome debugger view if it exists
+		if m.chromeDebuggerView != nil {
+			var chromeModel tea.Model
+			chromeModel, _ = m.chromeDebuggerView.Update(msg)
+			m.chromeDebuggerView = chromeModel.(*views.ChromeDebuggerView)
+		}
+		
+		// Update navigation view if it exists
+		if m.navigationView != nil {
+			var navModel tea.Model
+			navModel, _ = m.navigationView.Update(msg)
+			m.navigationView = navModel.(*views.NavigationView)
 		}
 
-	case ShowFlowViewMsg:
-		// Initialize flow view if not already created
-		if m.flowView == nil {
-			var err error
-			m.flowView, err = views.NewFlowView(m.config, m.projectRoot)
-			if err != nil {
-				// Handle error - maybe show an error view or return to menu
-				return m, nil
+	
+	case ShowChromeDebuggerViewMsg:
+		// Initialize Chrome debugger view if not already created
+		if m.chromeDebuggerView == nil {
+			m.chromeDebuggerView = views.NewChromeDebuggerView()
+		}
+		m.currentView = ViewChromeDebugger
+		return m, m.chromeDebuggerView.Init()
+	
+	case ShowNavigationViewMsg:
+		// Initialize Navigation view if not already created
+		if m.navigationView == nil {
+			m.navigationView = views.NewNavigationView(m.config)
+		}
+		m.currentView = ViewNavigation
+		return m, m.navigationView.Init()
+	
+	case views.ReturnToMenuMsg:
+		// Clean up resources when leaving views
+		if m.currentView == ViewAdventure && m.adventureView != nil {
+			m.adventureView.Cleanup()
+		}
+		if m.currentView == ViewChatAdventure && m.chatAdventureView != nil {
+			// Call cleanup if the view implements it
+			if v, ok := m.chatAdventureView.(interface{ Cleanup() }); ok {
+				v.Cleanup()
 			}
 		}
-		m.currentView = ViewFlow
-		return m, m.flowView.Init()
+		if m.currentView == ViewNavigation && m.navigationView != nil {
+			m.navigationView.Cleanup()
+		}
+		// Return to the main menu
+		m.currentView = ViewMenu
+		return m, nil
+		
+	case views.RestartConfigMsg:
+		// Clean up current view
+		if m.chatAdventureView != nil {
+			if v, ok := m.chatAdventureView.(interface{ Cleanup() }); ok {
+				v.Cleanup()
+			}
+		}
+		// Set flag and quit
+		m.requestRestart = true
+		return m, tea.Quit
 	}
 
 	// Update the current view
@@ -215,8 +362,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch selectedItem.title {
 			case "Exit":
 				return m, tea.Quit
-			case "AI Flow Discovery":
-				return m, showFlowView()
+			case "Tod Adventure Mode":
+				if m.chatAdventureView == nil {
+					// Use the enhanced V2 chat view
+					m.chatAdventureView = views.NewChatAdventureV2View(m.config)
+					// Set program reference if available
+					if v2, ok := m.chatAdventureView.(*views.ChatAdventureV2View); ok && m.program != nil {
+						v2.SetProgram(m.program)
+					}
+				}
+				m.currentView = ViewChatAdventure
+				return m, m.chatAdventureView.Init()
+			case "Navigation Mode":
+				return m, showNavigationView()
+			case "Chrome Test Discovery":
+				return m, showChromeDebuggerView()
 			case "Start New Journey":
 				m.currentView = ViewAdventure
 				// Load available actions
@@ -226,16 +386,33 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		
 	case ViewAdventure:
 		var adventureCmd tea.Cmd
-		m.adventureView, adventureCmd = m.adventureView.Update(msg)
+		adventureModel, adventureCmd := m.adventureView.Update(msg)
+		m.adventureView = adventureModel.(*views.AdventureView)
 		return m, adventureCmd
 
-	case ViewFlow:
-		if m.flowView != nil {
-			var flowCmd tea.Cmd
-			var flowModel tea.Model
-			flowModel, flowCmd = m.flowView.Update(msg)
-			m.flowView = flowModel.(*views.FlowView)
-			return m, flowCmd
+	case ViewChatAdventure:
+		if m.chatAdventureView != nil {
+			var chatCmd tea.Cmd
+			m.chatAdventureView, chatCmd = m.chatAdventureView.Update(msg)
+			return m, chatCmd
+		}
+	
+	case ViewNavigation:
+		if m.navigationView != nil {
+			var navCmd tea.Cmd
+			var navModel tea.Model
+			navModel, navCmd = m.navigationView.Update(msg)
+			m.navigationView = navModel.(*views.NavigationView)
+			return m, navCmd
+		}
+	
+	case ViewChromeDebugger:
+		if m.chromeDebuggerView != nil {
+			var chromeCmd tea.Cmd
+			var chromeModel tea.Model
+			chromeModel, chromeCmd = m.chromeDebuggerView.Update(msg)
+			m.chromeDebuggerView = chromeModel.(*views.ChromeDebuggerView)
+			return m, chromeCmd
 		}
 	}
 
@@ -249,11 +426,21 @@ func (m *Model) View() string {
 		return m.renderMenu()
 	case ViewAdventure:
 		return m.adventureView.View()
-	case ViewFlow:
-		if m.flowView != nil {
-			return m.flowView.View()
+	case ViewChatAdventure:
+		if m.chatAdventureView != nil {
+			return m.chatAdventureView.View()
 		}
-		return "Flow view not initialized"
+		return "Chat adventure view not initialized"
+	case ViewNavigation:
+		if m.navigationView != nil {
+			return m.navigationView.View()
+		}
+		return "Navigation view not initialized"
+	case ViewChromeDebugger:
+		if m.chromeDebuggerView != nil {
+			return m.chromeDebuggerView.View()
+		}
+		return "Chrome debugger view not initialized"
 	default:
 		return "Unknown view"
 	}
@@ -387,5 +574,16 @@ const asciiLogo = `
 ╚══════════════════════════════════════════╝
 `
 
+// SetProgram sets the program reference and passes it to views that need it
+func (m *Model) SetProgram(p *tea.Program) {
+	m.program = p
+	
+	// Pass the program reference to ChatAdventureV2View if it exists
+	if v2, ok := m.chatAdventureView.(*views.ChatAdventureV2View); ok {
+		v2.SetProgram(p)
+	}
+}
+
 // Message types
-type ShowFlowViewMsg struct{}
+type ShowChromeDebuggerViewMsg struct{}
+type ShowNavigationViewMsg struct{}

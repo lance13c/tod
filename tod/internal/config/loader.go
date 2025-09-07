@@ -114,8 +114,14 @@ func (l *Loader) applyEnvOverrides(config *Config) error {
 	// Native environment variable handling (faster than viper)
 	
 	// AI configuration overrides
+	// Support both TOD_AI_API_KEY and OPENAI_API_KEY for convenience
 	if apiKey := os.Getenv("TOD_AI_API_KEY"); apiKey != "" {
 		config.AI.APIKey = apiKey
+	} else if config.AI.Provider == "openai" && config.AI.APIKey == "" {
+		// If provider is OpenAI and no key is set, check for standard OPENAI_API_KEY
+		if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+			config.AI.APIKey = apiKey
+		}
 	}
 	if provider := os.Getenv("TOD_AI_PROVIDER"); provider != "" {
 		config.AI.Provider = provider

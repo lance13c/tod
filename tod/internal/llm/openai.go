@@ -2,12 +2,15 @@ package llm
 
 import (
 	"context"
-	"fmt"
+	"log"
+	"os"
 
 	"github.com/ciciliostudio/tod/internal/types"
 )
 
 // openAIClientSimple is a simplified implementation that delegates to mock
+// TODO: This currently just delegates to the mock client and doesn't make real OpenAI API calls
+// The mock client returns sample test code for test generation requests
 type openAIClientSimple struct {
 	apiKey   string
 	model    string
@@ -15,30 +18,38 @@ type openAIClientSimple struct {
 	costCalc *CostCalculator
 }
 
-// newOpenAIClient creates a new simplified OpenAI client
+// newOpenAIClient creates a new OpenAI client - now using the real implementation
 func newOpenAIClient(apiKey string, options map[string]interface{}) (Client, error) {
-	if apiKey == "" {
-		return nil, fmt.Errorf("OpenAI API key is required")
-	}
-
-	model := "gpt-4"
-	if m, ok := options["model"].(string); ok && m != "" {
-		model = m
-	}
-
-	mockClient := &mockClient{}
-
-	return &openAIClientSimple{
-		apiKey:   apiKey,
-		model:    model,
-		mock:     mockClient,
-		costCalc: NewCostCalculator(),
-	}, nil
+	// Use the real OpenAI client implementation
+	return newRealOpenAIClient(apiKey, options)
 }
 
 // AnalyzeCode delegates to mock implementation
 func (c *openAIClientSimple) AnalyzeCode(ctx context.Context, code, filePath string) (*CodeAnalysis, error) {
-	return c.mock.AnalyzeCode(ctx, code, filePath)
+	// Log the API call
+	logFile, err := os.OpenFile(".tod/api_calls.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err == nil {
+		defer logFile.Close()
+		logger := log.New(logFile, "[OPENAI_CLIENT] ", log.LstdFlags|log.Lmicroseconds)
+		logger.Printf("AnalyzeCode called - delegating to mock client")
+		logger.Printf("API Key present: %v", c.apiKey != "")
+		logger.Printf("Model: %s", c.model)
+		logger.Printf("FilePath: %s", filePath)
+	}
+	
+	// Currently delegates to mock - this should make real OpenAI API calls
+	result, err := c.mock.AnalyzeCode(ctx, code, filePath)
+	
+	if logFile != nil {
+		logger := log.New(logFile, "[OPENAI_CLIENT] ", log.LstdFlags|log.Lmicroseconds)
+		if err != nil {
+			logger.Printf("Mock returned error: %v", err)
+		} else {
+			logger.Printf("Mock returned successfully, Notes length: %d", len(result.Notes))
+		}
+	}
+	
+	return result, err
 }
 
 // GenerateFlow delegates to mock implementation

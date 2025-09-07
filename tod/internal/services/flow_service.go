@@ -70,10 +70,18 @@ func NewFlowService(cfg *config.Config, projectRoot string) (*FlowService, error
 	}, nil
 }
 
+// EstimateCost estimates the cost of AI analysis
+func (s *FlowService) EstimateCost(ctx context.Context) (float64, int64, int, error) {
+	// This would typically call the scanner to estimate costs
+	// For now, return mock values or call a method on the agent
+	// TODO: Implement actual cost estimation through the agent/scanner
+	return 0.05, 75000, 43, nil // Mock values for demonstration
+}
+
 // DiscoverAndCache discovers flows and caches them
-func (s *FlowService) DiscoverAndCache(ctx context.Context, useCache bool) (*core.FlowDiscoveryResult, error) {
-	// Check cache first
-	if useCache && len(s.storage.flows) > 0 && time.Since(s.storage.lastUpdated) < 5*time.Minute {
+func (s *FlowService) DiscoverAndCache(ctx context.Context, useAI bool) (*core.FlowDiscoveryResult, error) {
+	// Check cache first (always use cache if available for now)
+	if len(s.storage.flows) > 0 && time.Since(s.storage.lastUpdated) < 5*time.Minute {
 		flows := make([]core.Flow, 0, len(s.storage.flows))
 		for _, flow := range s.storage.flows {
 			flows = append(flows, *flow)

@@ -276,6 +276,22 @@ func (m *InitWizardModel) View() string {
 	b.WriteString(m.stepStyle.Render(progress))
 	b.WriteString("\n")
 
+	// Special handling for complete step
+	if m.currentStep == StepComplete {
+		b.WriteString("\n")
+		completeStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#4A9EFF")).
+			MarginTop(2).
+			MarginBottom(2).
+			Align(lipgloss.Center)
+		
+		b.WriteString(completeStyle.Render("✓ Configuration Complete!"))
+		b.WriteString("\n\n")
+		b.WriteString(m.helpStyle.Render("Press enter to finish initialization..."))
+		return b.String()
+	}
+
 	// Show history for current step
 	if history, exists := m.history[m.currentStep]; exists && len(history) > 0 {
 		for _, historyItem := range history {
@@ -338,7 +354,15 @@ func (m *InitWizardModel) setupStepInput() {
 		m.placeholder = "Programming language for tests"
 
 	case StepTestDir:
-		m.suggestions = TestDirectorySuggestions
+		// Filter test directory suggestions to only show existing paths
+		var existingPaths []string
+		for _, path := range TestDirectorySuggestions {
+			fullPath := filepath.Join(m.cwd, path)
+			if info, err := os.Stat(fullPath); err == nil && info.IsDir() {
+				existingPaths = append(existingPaths, path)
+			}
+		}
+		m.suggestions = existingPaths
 		m.defaultValue = getValueOrFallback(m.testingConfig.TestDir, "tests/e2e")
 		m.placeholder = "Directory containing test files"
 
@@ -392,6 +416,15 @@ func (m *InitWizardModel) setupStepInput() {
 		}
 		m.defaultValue = getValueOrFallback(m.envConfig.BaseURL, "http://localhost:3000")
 		m.placeholder = "Base URL for the environment"
+	
+	case StepComplete:
+		// Clear input for complete step
+		m.suggestions = nil
+		m.defaultValue = ""
+		m.placeholder = ""
+		m.textInput.SetValue("")
+		m.textInput.Blur()
+		return
 	}
 
 	m.textInput.SetValue(m.defaultValue)

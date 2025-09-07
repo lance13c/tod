@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -14,13 +15,14 @@ import (
 
 // TUIAdapter implements the UIProvider interface for TUI interactions
 type TUIAdapter struct {
-	model       tea.Model
-	program     *tea.Program
-	inputChan   chan string
-	resultChan  chan interface{}
-	progressChan chan ProgressUpdate
-	mu          sync.Mutex
-	styles      TUIStyles
+	model            tea.Model
+	program          *tea.Program
+	inputChan        chan string
+	resultChan       chan interface{}
+	progressChan     chan ProgressUpdate
+	confirmationChan chan bool
+	mu               sync.Mutex
+	styles           TUIStyles
 }
 
 // TUIStyles holds styling for the TUI adapter
@@ -70,10 +72,11 @@ func NewTUIAdapter() *TUIAdapter {
 	}
 
 	return &TUIAdapter{
-		inputChan:    make(chan string, 1),
-		resultChan:   make(chan interface{}, 1),
-		progressChan: make(chan ProgressUpdate, 10),
-		styles:       styles,
+		inputChan:        make(chan string, 1),
+		resultChan:       make(chan interface{}, 1),
+		progressChan:     make(chan ProgressUpdate, 10),
+		confirmationChan: make(chan bool, 1),
+		styles:           styles,
 	}
 }
 
@@ -125,8 +128,30 @@ func (t *TUIAdapter) GetSelection(prompt string, options []core.SelectOption) (s
 
 // GetConfirmation gets yes/no confirmation
 func (t *TUIAdapter) GetConfirmation(prompt string) (bool, error) {
-	// This would show a confirmation dialog in the TUI
-	return true, nil // Placeholder
+	if t.program != nil {
+		// Send confirmation request to the TUI
+		t.program.Send(ConfirmationRequestMsg{
+			Prompt:   prompt,
+			Response: t.confirmationChan,
+		})
+		
+		// Wait for response
+		select {
+		case response := <-t.confirmationChan:
+			return response, nil
+		case <-time.After(30 * time.Second):
+			return false, fmt.Errorf("confirmation timeout")
+		}
+	}
+	
+	// Fallback to console prompt
+	fmt.Printf("%s (y/n): ", prompt)
+	var input string
+	_, err := fmt.Scanln(&input)
+	if err != nil {
+		return false, err
+	}
+	return strings.ToLower(input) == "y" || strings.ToLower(input) == "yes", nil
 }
 
 // ShowMessage displays a message with styling
@@ -356,6 +381,16 @@ type SelectionRequestMsg struct {
 	Prompt   string
 	Options  []core.SelectOption
 	Response chan string
+}
+
+// SendConfirmation sends a confirmation response
+func (t *TUIAdapter) SendConfirmation(response bool) {
+	select {
+	case t.confirmationChan <- response:
+		// Sent successfully
+	default:
+		// Channel full or not waiting for confirmation
+	}
 }
 
 type ConfirmationRequestMsg struct {

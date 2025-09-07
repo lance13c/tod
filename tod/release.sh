@@ -15,17 +15,17 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration
-RELEASES_REPO="lance13c/tod-releases"
-HOMEBREW_CASK_REPO="homebrew/homebrew-cask"
-FORKED_CASK_REPO="lance13c/homebrew-cask"
+RELEASES_REPO="lance13c/tod"
+PUBLIC_REPO="lance13c/tod"
 TOD_HOMEPAGE="https://tod.dev/"
 
 # Global variables
 CURRENT_VERSION=""
 NEW_VERSION=""
 NEW_SHA256=""
-BRANCH_NAME=""
 DRY_RUN=false
+SIGNING_IDENTITY=""
+NOTARIZATION_PROFILE=""
 
 # Utility functions
 log() {
@@ -167,6 +167,112 @@ select_version() {
     log "Selected version: $NEW_VERSION"
 }
 
+check_signing_identity() {
+    log "Checking for code signing identity..."
+    
+    # Check for signing identity
+    SIGNING_IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+    if [[ -z "$SIGNING_IDENTITY" ]]; then
+        warn "No Developer ID Application certificate found. App will not be signed."
+        warn "Users will see a security warning when opening the app."
+        if ! confirm "Continue without signing?"; then
+            error "Aborting release. Please install a Developer ID Application certificate or continue without signing."
+        fi
+        SIGNING_IDENTITY=""
+    else
+        log "Using signing identity: $SIGNING_IDENTITY"
+        
+        # Check for notarization profile
+        if security find-generic-password -s "notarytool-profile" &> /dev/null; then
+            NOTARIZATION_PROFILE="notarytool-profile"
+            log "Notarization profile found: $NOTARIZATION_PROFILE"
+        else
+            warn "No notarization profile found. App will be signed but not notarized."
+            warn "Users may still see security warnings when opening the app."
+        fi
+    fi
+}
+
+notarize_app() {
+    if [[ -z "$NOTARIZATION_PROFILE" ]]; then
+        warn "Skipping notarization - no profile configured"
+        return 0
+    fi
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        info "DRY RUN: Would notarize app bundle"
+        return 0
+    fi
+    
+    log "Submitting app for notarization..."
+    
+    # Create a zip file for notarization (required for app bundles)
+    local zip_path="dist/tod-notarization.zip"
+    (cd dist && zip -r "$(basename "$zip_path")" Tod.app)
+    
+    # Submit for notarization
+    local submission_id=$(xcrun notarytool submit "$zip_path" \
+        --keychain-profile "$NOTARIZATION_PROFILE" \
+        --wait \
+        --output-format json | jq -r '.id')
+    
+    if [[ -z "$submission_id" || "$submission_id" == "null" ]]; then
+        warn "Failed to get submission ID from notarization service"
+        return 1
+    fi
+    
+    log "Notarization submission ID: $submission_id"
+    
+    # Check status (the --wait flag should handle this, but let's be safe)
+    log "Waiting for notarization to complete..."
+    local status=""
+    local attempts=0
+    local max_attempts=30  # 15 minutes max (30 * 30 seconds)
+    
+    while [[ "$attempts" -lt "$max_attempts" ]]; do
+        status=$(xcrun notarytool info "$submission_id" \
+            --keychain-profile "$NOTARIZATION_PROFILE" \
+            --output-format json | jq -r '.status')
+        
+        case "$status" in
+            "Accepted")
+                log "Notarization successful! ✅"
+                break
+                ;;
+            "Rejected")
+                error "Notarization was rejected. Check the logs with: xcrun notarytool log $submission_id --keychain-profile $NOTARIZATION_PROFILE"
+                ;;
+            "Invalid")
+                error "Notarization submission was invalid. Check the logs with: xcrun notarytool log $submission_id --keychain-profile $NOTARIZATION_PROFILE"
+                ;;
+            "In Progress")
+                info "Notarization in progress... (attempt $((attempts + 1))/$max_attempts)"
+                sleep 30
+                ((attempts++))
+                ;;
+            *)
+                warn "Unknown notarization status: $status"
+                sleep 30
+                ((attempts++))
+                ;;
+        esac
+    done
+    
+    if [[ "$status" != "Accepted" ]]; then
+        error "Notarization did not complete successfully within the timeout period"
+    fi
+    
+    # Staple the notarization ticket
+    log "Stapling notarization ticket..."
+    if xcrun stapler staple dist/Tod.app; then
+        log "Notarization ticket stapled successfully ✅"
+    else
+        warn "Failed to staple notarization ticket, but notarization was successful"
+    fi
+    
+    # Clean up temporary zip file
+    rm -f "$zip_path"
+}
 build_release() {
     log "Building Tod v$NEW_VERSION..."
     
@@ -221,6 +327,25 @@ build_release() {
 </dict>
 </plist>
 EOF
+    
+    # Sign the app bundle if we have a signing identity
+    if [[ -n "$SIGNING_IDENTITY" ]]; then
+        log "Signing app bundle..."
+        codesign --force --deep --sign "$SIGNING_IDENTITY" --options runtime dist/Tod.app
+        
+        # Verify the signature
+        log "Verifying signature..."
+        if codesign --verify --verbose dist/Tod.app; then
+            log "App bundle signed successfully ✅"
+            
+            # Notarize the app
+            notarize_app
+        else
+            warn "Failed to verify signature. App may still work but will show security warnings."
+        fi
+    else
+        warn "Skipping code signing - no identity available"
+    fi
     
     # Create DMG
     log "Creating DMG..."
@@ -280,51 +405,49 @@ update_local_formula() {
     log "Local formula updated ✅"
 }
 
-update_homebrew_cask() {
-    log "Preparing homebrew-cask update..."
+push_to_public_repo() {
+    log "Pushing release to public repository..."
     
     if [[ "$DRY_RUN" == "true" ]]; then
-        info "DRY RUN: Would update homebrew-cask formula"
+        info "DRY RUN: Would push to public repository $PUBLIC_REPO"
         return 0
     fi
     
-    # Create branch name
-    BRANCH_NAME="update-tod-$NEW_VERSION"
-    
-    # Clone or update forked homebrew-cask
-    if [[ ! -d "homebrew-cask" ]]; then
-        log "Cloning forked homebrew-cask..."
-        gh repo fork "$HOMEBREW_CASK_REPO" --clone=true || true
-        cd homebrew-cask
-    else
-        log "Updating existing homebrew-cask clone..."
-        cd homebrew-cask
-        git fetch upstream
-        git checkout master
-        git merge upstream/master
+    # Check if we have the public repo as a remote
+    if ! git remote | grep -q "public"; then
+        log "Adding public repository as remote..."
+        git remote add public "https://github.com/$PUBLIC_REPO.git"
     fi
     
-    # Create new branch
-    git checkout -b "$BRANCH_NAME"
+    # Fetch latest from public repo
+    git fetch public
     
-    # Update the cask file
-    log "Updating cask file..."
-    sed -i '' "s/version \".*\"/version \"$NEW_VERSION\"/" Casks/t/tod.rb
-    sed -i '' "s/sha256 \".*\"/sha256 \"$NEW_SHA256\"/" Casks/t/tod.rb
+    # Create a release branch based on current state
+    local release_branch="release-v$NEW_VERSION"
+    git checkout -b "$release_branch"
     
-    # Commit changes
-    git add Casks/t/tod.rb
-    git commit -m "Update Tod to $NEW_VERSION
+    # Add the updated homebrew formula
+    git add homebrew/tod.rb
+    
+    # Commit the release
+    git commit -m "Release Tod v$NEW_VERSION
 
-- Tod $NEW_VERSION with latest improvements
-- Updated SHA256: $NEW_SHA256
-- Release available at: https://github.com/$RELEASES_REPO/releases/tag/v$NEW_VERSION"
+- Updated version to $NEW_VERSION
+- Updated homebrew formula with new SHA256: $NEW_SHA256
+- Built and signed app bundle
+- Ready for distribution"
     
-    # Push branch
-    git push origin "$BRANCH_NAME"
+    # Create and push tag
+    git tag -a "v$NEW_VERSION" -m "Tod v$NEW_VERSION"
     
-    cd ..
-    log "Homebrew-cask updated ✅"
+    # Push to public repository
+    git push public "$release_branch"
+    git push public "v$NEW_VERSION"
+    
+    # Switch back to original branch
+    git checkout -
+    
+    log "Pushed to public repository ✅"
 }
 
 show_review_summary() {
@@ -338,70 +461,16 @@ show_review_summary() {
     echo "  SHA256: $NEW_SHA256"
     echo "  DMG: dist/tod-$NEW_VERSION.dmg"
     echo "  GitHub Release: https://github.com/$RELEASES_REPO/releases/tag/v$NEW_VERSION"
-    echo "  Branch: $BRANCH_NAME"
+    echo "  Public Repository: $PUBLIC_REPO"
     echo ""
     echo -e "${BLUE}Files Updated:${NC}"
     echo "  ✅ Local homebrew/tod.rb"
-    echo "  ✅ Forked homebrew-cask Casks/t/tod.rb"
     echo "  ✅ GitHub release created"
+    echo "  ✅ Pushed to public repository"
     echo ""
-    echo -e "${BLUE}Next Steps:${NC}"
-    echo "  1. Review the changes above"
-    echo "  2. Test the DMG installation manually"
-    echo "  3. Confirm you want to submit the PR"
-    echo ""
-}
-
-submit_pr() {
-    log "Submitting PR to homebrew-cask..."
-    
-    if [[ "$DRY_RUN" == "true" ]]; then
-        info "DRY RUN: Would submit PR to $HOMEBREW_CASK_REPO"
-        return 0
-    fi
-    
-    local pr_body="## Update: Tod to $NEW_VERSION
-
-Tod is an agentic TUI manual tester - a text-adventure interface for E2E testing.
-
-### Changes
-- Updated to version $NEW_VERSION
-- Updated SHA256 checksum
-- Release available at: https://github.com/$RELEASES_REPO/releases/tag/v$NEW_VERSION
-
-### Pre-submission checklist
-- [x] The cask is for a stable version ($NEW_VERSION)
-- [x] The cask file follows the template structure
-- [x] The download URL is publicly accessible
-- [x] The SHA256 checksum is correct ($NEW_SHA256)
-- [x] The application installs and runs correctly
-
-### Additional Notes
-- Proprietary software from Ciciliostudio LLC
-- Homepage: $TOD_HOMEPAGE
-- Public releases hosted at: https://github.com/$RELEASES_REPO
-
-Thank you for reviewing this update!"
-    
-    cd homebrew-cask
-    local pr_url=$(gh pr create \
-        --repo "$HOMEBREW_CASK_REPO" \
-        --head "$FORKED_CASK_REPO:$BRANCH_NAME" \
-        --title "Update Tod to $NEW_VERSION" \
-        --body "$pr_body" \
-        --draft)
-    
-    cd ..
-    
-    echo ""
-    log "PR submitted as draft: $pr_url"
-    echo ""
-    tod_says "Your divine release is now in the hands of mortal reviewers!"
-    echo ""
-    echo -e "${GREEN}Next steps:${NC}"
-    echo "1. Review the draft PR: $pr_url"
-    echo "2. Mark as ready for review when satisfied"
-    echo "3. Wait for homebrew maintainers to review"
+    echo -e "${BLUE}Installation:${NC}"
+    echo "  brew tap lance13c/tod"
+    echo "  brew install --cask tod"
     echo ""
 }
 
@@ -467,6 +536,7 @@ main() {
     # Execute release steps
     check_dependencies
     get_current_version
+    check_signing_identity
     
     if [[ -n "$specified_version" ]]; then
         NEW_VERSION="$specified_version"
@@ -478,20 +548,16 @@ main() {
     echo ""
     if confirm "Proceed with release v$NEW_VERSION?"; then
         build_release
-        create_github_release
         update_local_formula
-        update_homebrew_cask
+        push_to_public_repo
+        create_github_release
         
         echo ""
         show_review_summary
         
-        if confirm "Submit PR to homebrew-cask?"; then
-            submit_pr
-        else
-            warn "PR not submitted. You can submit manually later:"
-            echo "  cd homebrew-cask"
-            echo "  gh pr create --repo $HOMEBREW_CASK_REPO --head $FORKED_CASK_REPO:$BRANCH_NAME"
-        fi
+        echo ""
+        tod_says "Release complete! Your homebrew tap is ready for divine consumption!"
+        echo ""
     else
         log "Release cancelled"
         exit 0

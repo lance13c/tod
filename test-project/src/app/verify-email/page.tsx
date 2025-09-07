@@ -1,9 +1,9 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 
-export default function VerifyEmailPage() {
+function VerifyEmailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<
@@ -33,10 +33,10 @@ export default function VerifyEmailPage() {
         const response = await fetch(`/api/auth/verify-email?token=${token}`);
         if (response.ok) {
           setStatus("success");
-          setMessage("Email verified successfully! Redirecting to login...");
+          setMessage("Email verified successfully! Redirecting to dashboard...");
           setTimeout(() => {
-            router.push("/login");
-          }, 3000);
+            router.push("/dashboard");
+          }, 2000);
         } else {
           setStatus("error");
           setMessage(
@@ -148,5 +148,17 @@ export default function VerifyEmailPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function VerifyEmailPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-gray-500">Loading...</div>
+      </div>
+    }>
+      <VerifyEmailContent />
+    </Suspense>
   );
 }

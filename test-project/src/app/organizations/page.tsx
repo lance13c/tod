@@ -77,7 +77,7 @@ export default function OrganizationsShowcase() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="">All Industries</option>
-                {industries?.map((industry) => (
+                {industries?.map((industry) => industry && (
                   <option key={industry} value={industry}>
                     {industry}
                   </option>

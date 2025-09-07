@@ -21,6 +21,16 @@ model User {
   accounts  Account[]
   organizations OrganizationMember[]
   ownedOrganizations Organization[]
+  
+  // GroupUp relations
+  createdShareSessions ShareSession[]
+  shareSessionParticipations ShareSessionParticipant[]
+  uploadedDocuments Document[]
+  
+  // Group relations
+  createdGroups Group[]
+  groupMemberships GroupMember[]
+  uploadedGroupFiles GroupFile[]
 }
 
 model Session {
@@ -72,6 +82,8 @@ model Organization {
   description String?
   website     String?
   logo        String?
+  logoUrl     String?  // URL to organization logo
+  brandColor  String?  // Hex color for branding
   isPublic    Boolean  @default(false)
   industry    String?
   size        String?  // "1-10", "11-50", "51-200", "201-500", "500+"
@@ -93,6 +105,7 @@ model Organization {
   ownerId     String
   owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   members     OrganizationMember[]
+  groups      Group[]  // Groups created for this organization
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -114,4 +127,227 @@ model OrganizationMember {
   updatedAt      DateTime     @updatedAt
   
   @@unique([userId, organizationId])
+}
+
+// GroupUp MVP Models
+
+model GuestSession {
+  id          String   @id @default(cuid())
+  fingerprint String   @unique
+  nickname    String?  // Optional display name
+  buildingId  String?
+  building    Building? @relation(fields: [buildingId], references: [id])
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  participants ShareSessionParticipant[]
+  documents   Document[]
+}
+
+model Building {
+  id        String   @id @default(cuid())
+  osmId     String?  @unique // OpenStreetMap ID if available
+  name      String?
+  address   String?
+  polygon   String   // GeoJSON polygon stored as string
+  bbox      String?  // Bounding box for quick filtering
+  area      Float?   // Square meters
+  
+  sessions      ShareSession[]
+  guestSessions GuestSession[]
+  groups        Group[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([bbox])
+}
+
+model ShareSession {
+  id              String   @id @default(cuid())
+  code            String   @unique // 6-character code
+  name            String
+  description     String?
+  creatorId       String?  // Null for guest-created sessions
+  creator         User?    @relation(fields: [creatorId], references: [id])
+  
+  // Location settings
+  buildingId      String?
+  building        Building? @relation(fields: [buildingId], references: [id])
+  latitude        Float
+  longitude       Float
+  geoLockRadius   Int      @default(100) // meters
+  
+  // WebRTC signaling
+  signalingData   String?  // JSON string for WebRTC offers/answers
+  iceServers      String?  // JSON string for ICE server config
+  
+  maxParticipants Int      @default(10)
+  requiresAuth    Boolean  @default(false)
+  expiresAt       DateTime
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  participants    ShareSessionParticipant[]
+  documents       Document[]
+  
+  @@index([code])
+  @@index([expiresAt])
+}
+
+model ShareSessionParticipant {
+  id            String   @id @default(cuid())
+  
+  sessionId     String
+  session       ShareSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  
+  // Can be either a registered user OR a guest
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id])
+  
+  guestId       String?
+  guest         GuestSession? @relation(fields: [guestId], references: [id])
+  
+  nickname      String?  // Display name in session
+  
+  // Connection info
+  peerId        String?  @unique // WebRTC peer ID
+  isConnected   Boolean  @default(false)
+  lastPing      DateTime?
+  
+  // Location for verification
+  latitude      Float?
+  longitude     Float?
+  
+  joinedAt      DateTime @default(now())
+  leftAt        DateTime?
+  
+  @@unique([sessionId, userId])
+  @@unique([sessionId, guestId])
+  @@index([peerId])
+}
+
+model Document {
+  id          String   @id @default(cuid())
+  filename    String
+  originalName String
+  mimetype    String
+  size        Int      // bytes
+  
+  // Storage - for WebRTC we don't store the file, just metadata
+  storageType String   @default("webrtc") // "webrtc", "local", "s3"
+  path        String?  // Only for non-WebRTC storage
+  checksum    String?  // SHA256 hash for verification
+  
+  // Thumbnail for images
+  thumbnailPath String?
+  
+  sessionId   String
+  session     ShareSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  
+  // Uploader can be user or guest
+  uploaderId  String?
+  uploader    User?    @relation(fields: [uploaderId], references: [id])
+  
+  guestUploaderId String?
+  guestUploader   GuestSession? @relation(fields: [guestUploaderId], references: [id])
+  
+  // Transfer status for WebRTC
+  transferStatus String @default("pending") // "pending", "transferring", "completed", "failed"
+  transferProgress Int @default(0) // 0-100 percentage
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([sessionId])
+  @@index([transferStatus])
+}
+
+// New Group Models for Organization-based sharing
+
+model Group {
+  id              String   @id @default(uuid())
+  name            String
+  description     String?
+  organizationId  String?
+  organization    Organization? @relation(fields: [organizationId], references: [id])
+  creatorId       String?  // Made optional for anonymous groups
+  creator         User?    @relation(fields: [creatorId], references: [id])
+  
+  // Location
+  latitude        Float
+  longitude       Float
+  radius          Int      @default(100) // meters
+  buildingId      String?
+  building        Building? @relation(fields: [buildingId], references: [id])
+  
+  // Expiration
+  expiresAt       DateTime
+  extendedCount   Int      @default(0) // Track number of extensions
+  maxExtensions   Int      @default(3) // Maximum allowed extensions
+  
+  // Storage
+  storageFolder   String   @unique // UUID folder path
+  
+  // Status
+  isActive        Boolean  @default(true)
+  isArchived      Boolean  @default(false)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  members         GroupMember[]
+  files           GroupFile[]
+  
+  @@index([organizationId])
+  @@index([creatorId])
+  @@index([expiresAt])
+  @@index([isActive])
+}
+
+model GroupMember {
+  id              String   @id @default(cuid())
+  groupId         String
+  group           Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  role            String   @default("participant") // "creator" or "participant"
+  
+  // Location when joined
+  joinedLatitude  Float?
+  joinedLongitude Float?
+  
+  joinedAt        DateTime @default(now())
+  lastActiveAt    DateTime @default(now())
+  
+  @@unique([groupId, userId])
+  @@index([userId])
+  @@index([role])
+}
+
+model GroupFile {
+  id              String   @id @default(cuid())
+  filename        String
+  originalName    String
+  mimetype        String
+  size            Int      // bytes
+  path            String   // Path within UUID folder
+  
+  uploaderId      String?  // Made optional for anonymous uploads
+  uploader        User?    @relation(fields: [uploaderId], references: [id])
+  groupId         String
+  group           Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  
+  isFromCreator   Boolean  // Mark files from group creator
+  
+  // Optional thumbnail for images
+  thumbnailPath   String?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([groupId])
+  @@index([uploaderId])
 }

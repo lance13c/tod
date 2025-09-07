@@ -19,7 +19,7 @@ A delightful CLI testing tool that presents E2E testing as interactive text-adve
 
 ```bash
 # Install via Homebrew Cask
-brew install --cask tod
+brew install --cask lance13c/tod/tod
 
 # Run tod from anywhere
 tod

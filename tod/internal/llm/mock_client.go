@@ -3,6 +3,8 @@ package llm
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
 	"strings"
 
 	"github.com/ciciliostudio/tod/internal/types"
@@ -22,6 +24,71 @@ func newMockClient(options map[string]interface{}) (Client, error) {
 
 // AnalyzeCode implements the Client interface with mock responses
 func (m *mockClient) AnalyzeCode(ctx context.Context, code, filePath string) (*CodeAnalysis, error) {
+	// Log the API call
+	logFile, err := os.OpenFile(".tod/api_calls.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err == nil {
+		defer logFile.Close()
+		logger := log.New(logFile, "[MOCK_CLIENT] ", log.LstdFlags|log.Lmicroseconds)
+		logger.Printf("AnalyzeCode called with filePath: %s", filePath)
+		logger.Printf("Code/Prompt length: %d characters", len(code))
+		
+		// Log first 500 chars of the prompt
+		if len(code) > 500 {
+			logger.Printf("First 500 chars of prompt: %s...", code[:500])
+		} else {
+			logger.Printf("Full prompt: %s", code)
+		}
+	}
+
+	// For test generation, return actual test code
+	if filePath == "test-generation.txt" {
+		testCode := `// Generated Test Code
+describe('User Actions Test Suite', () => {
+  test('should perform user action 1', async () => {
+    // Test implementation here
+    await page.click('[data-testid="button1"]');
+    await expect(page).toHaveURL('/success');
+  });
+
+  test('should perform user action 2', async () => {
+    // Test implementation here
+    await page.fill('input[name="email"]', 'test@example.com');
+    await page.click('button[type="submit"]');
+    await expect(page.locator('.success-message')).toBeVisible();
+  });
+});`
+
+		if logFile != nil {
+			logger := log.New(logFile, "[MOCK_CLIENT] ", log.LstdFlags|log.Lmicroseconds)
+			logger.Printf("Returning test generation response, length: %d", len(testCode))
+		}
+
+		return &CodeAnalysis{
+			Notes:      testCode,
+			Confidence: 0.9,
+		}, nil
+	}
+
+	// Handle action discovery from HTML analysis
+	if filePath == "page.html" || strings.Contains(code, "Analyze the page and identify important user actions") {
+		// Return mock discovered actions in the expected format
+		mockActions := `Click the Start button | high
+Navigate to the sign in page | high
+Fill out the contact form | medium
+View the pricing information | medium
+Click the Get Started button | low`
+
+		if logFile != nil {
+			logger := log.New(logFile, "[MOCK_CLIENT] ", log.LstdFlags|log.Lmicroseconds)
+			logger.Printf("Returning action discovery response with %d mock actions", 5)
+		}
+
+		return &CodeAnalysis{
+			Notes:      mockActions,
+			Confidence: 0.8,
+		}, nil
+	}
+
 	// Simple mock analysis based on code patterns
 	analysis := &CodeAnalysis{
 		Endpoints:    []EndpointInfo{},
@@ -43,6 +110,11 @@ func (m *mockClient) AnalyzeCode(ctx context.Context, code, filePath string) (*C
 			LineNumber:  1,
 		}
 		analysis.Endpoints = append(analysis.Endpoints, endpoint)
+	}
+
+	if logFile != nil {
+		logger := log.New(logFile, "[MOCK_CLIENT] ", log.LstdFlags|log.Lmicroseconds)
+		logger.Printf("Returning standard analysis response")
 	}
 
 	return analysis, nil
@@ -221,19 +293,29 @@ func (m *mockClient) InterpretCommand(ctx context.Context, command string, avail
 		Suggestions: []string{},
 	}
 
-	// Simple pattern matching for mock interpretation
+	// Enhanced pattern matching for mock interpretation
 	switch {
-	case strings.Contains(command, "navigate") || strings.Contains(command, "go to") || strings.Contains(command, "visit"):
+	case strings.Contains(command, "navigate") || strings.Contains(command, "go to") || strings.Contains(command, "visit") || 
+		 strings.Contains(command, "go home") || strings.Contains(command, "homepage") || 
+		 (strings.Contains(command, "go") && strings.Contains(command, "home")):
 		interpretation.CommandType = "navigation"
-		if strings.Contains(command, "homepage") || strings.Contains(command, "home") {
+		interpretation.Confidence = 0.9
+		if strings.Contains(command, "homepage") || strings.Contains(command, "home") || strings.Contains(command, "main") {
 			interpretation.Parameters["page"] = "/"
-			interpretation.Suggestions = []string{"go to /", "visit homepage", "navigate to main page"}
-		} else if strings.Contains(command, "login") {
+			interpretation.Parameters["target"] = "homepage"
+			interpretation.Suggestions = []string{"navigate to homepage", "go to main page", "visit home"}
+		} else if strings.Contains(command, "login") || strings.Contains(command, "sign") {
 			interpretation.Parameters["page"] = "/login"
+			interpretation.Parameters["target"] = "login"
 			interpretation.Suggestions = []string{"go to login", "navigate to sign in"}
 		} else if strings.Contains(command, "dashboard") {
 			interpretation.Parameters["page"] = "/dashboard"
+			interpretation.Parameters["target"] = "dashboard"
 			interpretation.Suggestions = []string{"go to dashboard", "navigate to main dashboard"}
+		} else {
+			// Generic navigation
+			interpretation.Parameters["target"] = "unknown"
+			interpretation.Suggestions = []string{"try 'go to homepage'", "try 'navigate to login'"}
 		}
 
 	case strings.Contains(command, "sign in") || strings.Contains(command, "login") || strings.Contains(command, "authenticate"):

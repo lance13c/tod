@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +50,17 @@ func NewClient(baseURL string) (*Client, error) {
 		return nil, err
 	}
 
+	// Determine debugging port from environment or use default
+	debugPort := "9222"
+	if envPort := os.Getenv("BROWSER_DEBUG_PORT"); envPort != "" {
+		if _, err := strconv.Atoi(envPort); err == nil {
+			debugPort = envPort
+		}
+	}
+	
+	// Check if debugging should be disabled
+	disableDebugging := os.Getenv("BROWSER_DISABLE_DEBUG") == "true"
+	
 	// Create chrome instance with enhanced flags
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", true),
@@ -59,6 +72,15 @@ func NewClient(baseURL string) (*Client, error) {
 		chromedp.Flag("enable-logging", true),
 		chromedp.Flag("disable-web-security", true),
 	)
+	
+	// Add debugging flags unless explicitly disabled
+	if !disableDebugging {
+		opts = append(opts,
+			chromedp.Flag("remote-debugging-port", debugPort),
+			chromedp.Flag("remote-debugging-address", "127.0.0.1"),
+		)
+		log.Printf("Chrome debugging enabled on port %s", debugPort)
+	}
 	
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	

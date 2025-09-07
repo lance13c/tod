@@ -20,6 +20,7 @@ type ScanOptions struct {
 	Framework string // nextjs, express, gin, fastapi, auto
 	Language  string // typescript, javascript, go, python, auto
 	SkipLLM   bool   // Skip LLM analysis
+	Silent    bool   // Suppress console output (for TUI mode)
 }
 
 // Scanner handles project discovery and analysis
@@ -87,7 +88,9 @@ func NewScanner(projectRoot string, options ScanOptions, cfg *config.Config) *Sc
 
 // ScanProject performs a universal project scan using LLM intelligence
 func (s *Scanner) ScanProject() (*ScanResults, error) {
-	fmt.Println("Analyzing codebase with AI...")
+	if !s.options.Silent {
+		fmt.Println("Analyzing codebase with AI...")
+	}
 	
 	// Detect basic project info (language, name)
 	project, err := s.detectProject()
@@ -95,7 +98,9 @@ func (s *Scanner) ScanProject() (*ScanResults, error) {
 		return nil, fmt.Errorf("failed to detect project: %w", err)
 	}
 
-	fmt.Printf("Detected: %s project\n", project.Language)
+	if !s.options.Silent {
+		fmt.Printf("Detected: %s project\n", project.Language)
+	}
 
 	// Get git information
 	gitInfo := s.getGitInfo()
@@ -125,7 +130,9 @@ func (s *Scanner) ScanProject() (*ScanResults, error) {
 
 	for i, file := range files {
 		// Show progress counter that updates the same line
-		fmt.Printf("\r   Analyzing files... [%d/%d] %s", i+1, len(files), filepath.Base(file))
+		if !s.options.Silent {
+			fmt.Printf("\r   Analyzing files... [%d/%d] %s", i+1, len(files), filepath.Base(file))
+		}
 		
 		actions, fileInfo, errs := s.analyzeFileWithLLM(file)
 		allActions = append(allActions, actions...)
@@ -134,9 +141,10 @@ func (s *Scanner) ScanProject() (*ScanResults, error) {
 	}
 	
 	// Clear the progress line and show completion
-	fmt.Printf("\r   Analyzing files... [%d/%d] Complete!%s\n", len(files), len(files), strings.Repeat(" ", 20))
-
-	fmt.Printf("Discovered %d user actions\n", len(allActions))
+	if !s.options.Silent {
+		fmt.Printf("\r   Analyzing files... [%d/%d] Complete!%s\n", len(files), len(files), strings.Repeat(" ", 20))
+		fmt.Printf("Discovered %d user actions\n", len(allActions))
+	}
 
 	// Create results
 	results := &ScanResults{
@@ -153,7 +161,9 @@ func (s *Scanner) ScanProject() (*ScanResults, error) {
 
 // ScanProjectWithDirectories performs targeted scanning of specific directories
 func (s *Scanner) ScanProjectWithDirectories(directories []string) (*ScanResults, error) {
-	fmt.Println("Analyzing selected directories with AI...")
+	if !s.options.Silent {
+		fmt.Println("Analyzing selected directories with AI...")
+	}
 	
 	// Detect basic project info
 	project, err := s.detectProject()
@@ -161,7 +171,9 @@ func (s *Scanner) ScanProjectWithDirectories(directories []string) (*ScanResults
 		return nil, fmt.Errorf("failed to detect project: %w", err)
 	}
 
-	fmt.Printf("Detected: %s project\n", project.Language)
+	if !s.options.Silent {
+		fmt.Printf("Detected: %s project\n", project.Language)
+	}
 
 	// Get git information
 	gitInfo := s.getGitInfo()
@@ -172,14 +184,18 @@ func (s *Scanner) ScanProjectWithDirectories(directories []string) (*ScanResults
 		dirPath := filepath.Join(s.projectRoot, dir)
 		dirFiles, err := s.findFilesInDirectory(dirPath)
 		if err != nil {
-			fmt.Printf("Could not scan directory %s: %v\n", dir, err)
+			if !s.options.Silent {
+				fmt.Printf("Could not scan directory %s: %v\n", dir, err)
+			}
 			continue
 		}
 		files = append(files, dirFiles...)
 	}
 
 	if len(files) == 0 {
-		fmt.Println("No relevant files found in selected directories")
+		if !s.options.Silent {
+			fmt.Println("No relevant files found in selected directories")
+		}
 		return &ScanResults{
 			Project:   project,
 			Actions:   []types.CodeAction{},
@@ -189,7 +205,9 @@ func (s *Scanner) ScanProjectWithDirectories(directories []string) (*ScanResults
 		}, nil
 	}
 
-	fmt.Printf("Analyzing %d source files in selected directories...\n", len(files))
+	if !s.options.Silent {
+		fmt.Printf("Analyzing %d source files in selected directories...\n", len(files))
+	}
 
 	// Analyze files for user actions using LLM
 	var allActions []types.CodeAction
@@ -198,7 +216,9 @@ func (s *Scanner) ScanProjectWithDirectories(directories []string) (*ScanResults
 
 	for i, file := range files {
 		// Show progress counter that updates the same line
-		fmt.Printf("\r   Analyzing files... [%d/%d] %s", i+1, len(files), filepath.Base(file))
+		if !s.options.Silent {
+			fmt.Printf("\r   Analyzing files... [%d/%d] %s", i+1, len(files), filepath.Base(file))
+		}
 		
 		actions, fileInfo, errs := s.analyzeFileWithLLM(file)
 		allActions = append(allActions, actions...)
@@ -207,9 +227,10 @@ func (s *Scanner) ScanProjectWithDirectories(directories []string) (*ScanResults
 	}
 	
 	// Clear the progress line and show completion
-	fmt.Printf("\r   Analyzing files... [%d/%d] Complete!%s\n", len(files), len(files), strings.Repeat(" ", 20))
-
-	fmt.Printf("Discovered %d user actions\n", len(allActions))
+	if !s.options.Silent {
+		fmt.Printf("\r   Analyzing files... [%d/%d] Complete!%s\n", len(files), len(files), strings.Repeat(" ", 20))
+		fmt.Printf("Discovered %d user actions\n", len(allActions))
+	}
 
 	// Create results
 	results := &ScanResults{
@@ -534,12 +555,14 @@ func (s *Scanner) discoverActionsWithLLM(content, filePath string, codeContext C
 	ctx := context.Background()
 	analysis, err := client.AnalyzeCode(ctx, content, filePath)
 	if err != nil {
-		fmt.Printf("   LLM analysis failed (%v), using fallback\n", err)
+		if !s.options.Silent {
+			fmt.Printf("   LLM analysis failed (%v), using fallback\n", err)
+		}
 		return s.fallbackActionDiscovery(content, filePath, codeContext)
 	}
 
 	// Track usage
-	if analysis.Usage != nil {
+	if analysis.Usage != nil && !s.options.Silent {
 		fmt.Printf("   Actual cost: %s (%s tokens)\n", 
 			llm.FormatCost(analysis.Usage.TotalCost),
 			llm.FormatTokens(analysis.Usage.TotalTokens))
@@ -737,8 +760,10 @@ func (s *Scanner) estimateTotalCostAndConfirm(files []string) (bool, error) {
 	// Try to create LLM client
 	client, err := s.createLLMClient()
 	if err != nil {
-		fmt.Printf("   🔄 LLM unavailable (%v)\n", err)
-		fmt.Printf("   📁 Using free fallback analysis for %d files\n", len(files))
+		if !s.options.Silent {
+			fmt.Printf("   🔄 LLM unavailable (%v)\n", err)
+			fmt.Printf("   📁 Using free fallback analysis for %d files\n", len(files))
+		}
 		return false, nil // Not an error, just skip LLM
 	}
 
@@ -759,15 +784,22 @@ func (s *Scanner) estimateTotalCostAndConfirm(files []string) (bool, error) {
 	}
 
 	// Show total estimate
-	fmt.Printf("   Total estimated cost: %s (%s tokens) for %d files\n", 
-		llm.FormatCost(totalCost),
-		llm.FormatTokens(totalTokens),
-		len(files))
+	if !s.options.Silent {
+		fmt.Printf("   Total estimated cost: %s (%s tokens) for %d files\n", 
+			llm.FormatCost(totalCost),
+			llm.FormatTokens(totalTokens),
+			len(files))
 
-	// Ask for confirmation once
-	fmt.Printf("   Continue with LLM analysis for all files? (y/N): ")
+		// Ask for confirmation once
+		fmt.Printf("   Continue with LLM analysis for all files? (y/N): ")
+	}
 	var response string
-	fmt.Scanln(&response)
+	if !s.options.Silent {
+		fmt.Scanln(&response)
+	} else {
+		// In silent mode, skip LLM to avoid blocking on input
+		return false, nil
+	}
 	
 	return response == "y" || response == "Y", nil
 }

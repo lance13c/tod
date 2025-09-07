@@ -118,3 +118,114 @@ More description text.
 - Keep bullet points concise with consistent formatting
 - Use tables with proper alignment (left for text, right for numbers)
 - avoid using emojis, you can use cool ascii codes, no emojis please
+
+## Tod Release Process
+
+### Prerequisites (One-time Setup)
+
+**Apple Developer Certificates:**
+- Developer ID Application certificate installed in Keychain
+- Team ID: `745D23AJ53`
+
+**Notarization Setup:**
+```bash
+# Store notarization credentials (already configured)
+xcrun notarytool store-credentials "notarytool-profile" \
+  --apple-id "dominic@ciciliostudio.com" \
+  --team-id "745D23AJ53" \
+  --password "[app-specific-password]"
+```
+
+**Credential Storage:**
+- Notarization credentials are stored in `.notarization-credentials` file
+- Keychain profile name: `notarytool-profile`
+- Never commit credentials to git
+
+### Release Workflow
+
+**1. Enhanced Release Script**
+The `tod/release.sh` script has been updated with:
+- Apple notarization support via `xcrun notarytool`
+- Hardened runtime code signing (`--options runtime`)
+- Public repository sync (lance13c/tod)
+- Homebrew tap updates
+
+**2. Execute Release**
+```bash
+cd tod/
+./release.sh
+# Select version increment or provide custom version
+# Script handles: build → sign → notarize → DMG creation → GitHub release
+```
+
+**3. Repository Structure**
+- **Private repo**: Contains source code, stays private
+- **Public repo** (`lance13c/tod`): Contains only release artifacts:
+  - `README.md`
+  - `LICENSE`
+  - `HOMEBREW_TAP.md`
+  - `Casks/tod.rb` (homebrew formula)
+
+**4. What the Script Does**
+- Builds universal binary (Intel + Apple Silicon)
+- Code signs with Developer ID + hardened runtime
+- Submits to Apple for notarization
+- Waits for notarization approval
+- Staples notarization ticket to app
+- Creates DMG with notarized app
+- Creates GitHub release on public repo
+- Updates homebrew formula with new SHA256
+
+### Notarization Process
+
+**How It Works:**
+1. App signed with `--options runtime` (hardened runtime)
+2. Zip created for submission: `tod-notarization.zip`
+3. Submitted via `xcrun notarytool submit`
+4. Apple processes (usually 1-5 minutes)
+5. Ticket stapled to app: `xcrun stapler staple`
+6. Result: "Notarized Developer ID" status
+
+**Verification:**
+```bash
+# Check notarization status
+spctl -a -vvv -t install dist/Tod.app
+# Should show: "source=Notarized Developer ID"
+```
+
+### User Installation
+
+**Via Homebrew Tap:**
+```bash
+brew tap lance13c/tod
+brew install --cask tod
+```
+
+**Manual Download:**
+- Users download DMG from GitHub releases
+- No security warnings due to proper notarization
+
+### Common Issues
+
+**"Unnotarized Developer ID" Error:**
+- Missing hardened runtime flag
+- Solution: Re-sign with `--options runtime`
+
+**"Archive contains critical validation errors":**
+- Usually hardened runtime not enabled
+- Check logs: `xcrun notarytool log [submission-id]`
+
+**Release Branch Contains Private Code:**
+- Never push `release-v*` branches to public repo
+- Only update homebrew formula and create GitHub releases
+
+**Notarization Timeout:**
+- Apple service can be slow
+- Script waits up to 15 minutes automatically
+
+### Security Notes
+
+- Private source code never exposed to public
+- Release artifacts are minimal and safe
+- Notarization ensures no malware false positives
+- Code signing prevents tampering

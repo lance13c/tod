@@ -3,19 +3,23 @@ package views
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/ciciliostudio/tod/internal/browser"
 	"github.com/ciciliostudio/tod/internal/config"
+	"github.com/ciciliostudio/tod/internal/email"
 	"github.com/ciciliostudio/tod/internal/llm"
+	"github.com/ciciliostudio/tod/internal/testing"
 	"github.com/ciciliostudio/tod/internal/types"
 )
 
@@ -50,11 +54,21 @@ type AdventureView struct {
 	// Feedback
 	lastResult string
 
+	// Loading state and spinner
+	isLoading bool
+	loadingMessage string
+	spinner spinner.Model
+
 	// AI capabilities
 	llmClient llm.Client
 
 	// Browser automation
 	browserClient *browser.Client
+	
+	// Chrome management with chromedp
+	chromeDPManager *browser.ChromeDPManager
+	chromePort      int
+	configuredURL   string
 
 	// Styles
 	styles *AdventureStyles
@@ -132,6 +146,7 @@ type AdventureStyles struct {
 	ActionItem     lipgloss.Style
 	ActionSelected lipgloss.Style
 	ActionCategory lipgloss.Style
+	LoadingSpinner lipgloss.Style
 }
 
 // NewAdventureView creates a new adventure view
@@ -158,10 +173,22 @@ func NewAdventureViewWithLLM(cfg *config.Config, llmClient llm.Client) *Adventur
 			llmClient = client
 		}
 	}
+	
+	// Get configured URL
+	var configuredURL string
+	if cfg != nil {
+		env := cfg.GetCurrentEnv()
+		if env.BaseURL != "" {
+			configuredURL = env.BaseURL
+		}
+	}
+	if configuredURL == "" {
+		configuredURL = "http://localhost:3000" // fallback
+	}
 
 	// Initialize textarea for conversation history (read-only, selectable)
 	historyView := textarea.New()
-	historyView.SetValue("Welcome to Tod Adventure Mode!\nType commands to interact with your application.")
+	historyView.SetValue("")
 	historyView.Focus()
 	historyView.Blur() // Start unfocused so input field has focus
 	historyView.ShowLineNumbers = false
@@ -179,14 +206,24 @@ func NewAdventureViewWithLLM(cfg *config.Config, llmClient llm.Client) *Adventur
 	historyView.KeyMap.DeleteWordForward.SetEnabled(false)
 	historyView.KeyMap.InsertNewline.SetEnabled(false)
 
+	// Initialize spinner
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#04B575"))
+
 	return &AdventureView{
 		config:         cfg,
 		textInput:      ti,
 		historyView:    historyView,
 		history:        []ConversationMessage{},
 		userScrolledUp: false,
-		llmClient: llmClient,
-		styles:    NewAdventureStyles(),
+		llmClient:      llmClient,
+		chromePort:     9229, // Use same port as Chrome debugger view
+		configuredURL:  configuredURL,
+		styles:         NewAdventureStyles(),
+		spinner:        s,
+		isLoading:      false,
+		loadingMessage: "",
 		currentPage: PageState{
 			URL:         "Not connected",
 			Title:       "Tod Adventure",
@@ -212,7 +249,10 @@ func NewAdventureStyles() *AdventureStyles {
 			Foreground(lipgloss.Color("#FAFAFA")).
 			Background(lipgloss.Color("#7D56F4")).
 			Padding(0, 1).
-			MarginBottom(1),
+			MarginBottom(1).
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#FFFFFF")).
+			Width(80),
 
 		PageInfo: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#874BFD")).
@@ -220,7 +260,7 @@ func NewAdventureStyles() *AdventureStyles {
 
 		ActionBox: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#04B575")).
+			BorderForeground(lipgloss.Color("#FFFFFF")).
 			Padding(1).
 			MarginBottom(1),
 
@@ -236,7 +276,7 @@ func NewAdventureStyles() *AdventureStyles {
 		Help: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#626262")).
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#626262")).
+			BorderForeground(lipgloss.Color("#FFFFFF")).
 			Padding(0, 1).
 			MarginTop(1),
 
@@ -263,7 +303,7 @@ func NewAdventureStyles() *AdventureStyles {
 
 		ActionList: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#626262")).
+			BorderForeground(lipgloss.Color("#FFFFFF")).
 			Padding(0, 1).
 			MarginTop(1),
 
@@ -280,41 +320,102 @@ func NewAdventureStyles() *AdventureStyles {
 		ActionCategory: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#04B575")).
 			Bold(true),
+
+		LoadingSpinner: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#04B575")).
+			Bold(true),
 	}
 }
 
 // renderHistory creates the formatted conversation history content (plain text for textarea)
 func (av *AdventureView) renderHistory() string {
 	if len(av.history) == 0 {
-		return "Welcome to Tod Adventure Mode!\nType commands to interact with your application."
+		return "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
+			"       Tod Adventure Mode - Session Started\n" +
+			"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+			"Type commands to interact with your application.\n" +
+			"Type 'help' for available commands.\n"
 	}
 
 	var content strings.Builder
+	var lastURL string
+	lastTime := time.Time{}
 
-	for _, msg := range av.history {
+	for i, msg := range av.history {
+		// Add page transition header if URL changed
+		if msg.PageURL != lastURL && msg.PageURL != "" {
+			if i > 0 {
+				content.WriteString("\n")
+			}
+			content.WriteString(fmt.Sprintf("━━━ Page: %s ━━━\n", msg.PageURL))
+			lastURL = msg.PageURL
+		}
+
+		// Add timestamp for significant time gaps (> 5 seconds)
+		if !lastTime.IsZero() && msg.Timestamp.Sub(lastTime) > 5*time.Second {
+			content.WriteString(fmt.Sprintf("[%s]\n", msg.Timestamp.Format("15:04:05")))
+		}
+		lastTime = msg.Timestamp
+
 		var prefix string
-
 		switch msg.Type {
 		case MessageTypeUser:
 			prefix = "> "
 		case MessageTypeSystem:
 			prefix = "  "
 		case MessageTypeSuccess:
-			prefix = ">> "
+			prefix = "✓ "
 		case MessageTypeError:
-			prefix = "!! "
+			prefix = "✗ "
 		}
 
 		// Use plain text without lipgloss styling for textarea display
 		content.WriteString(fmt.Sprintf("%s%s\n", prefix, msg.Content))
 
 		// Add some spacing between user commands and responses
-		if msg.Type == MessageTypeUser {
+		if msg.Type == MessageTypeUser && i < len(av.history)-1 {
 			content.WriteString("\n")
 		}
 	}
 
+	// Add session statistics at the end
+	if len(av.history) > 0 {
+		content.WriteString("\n")
+		content.WriteString(fmt.Sprintf("━━━ Actions: %d | Duration: %s ━━━\n", 
+			av.countUserActions(), 
+			av.getSessionDuration()))
+	}
+
 	return content.String()
+}
+
+// countUserActions counts the number of user actions in the history
+func (av *AdventureView) countUserActions() int {
+	count := 0
+	for _, msg := range av.history {
+		if msg.Type == MessageTypeUser {
+			count++
+		}
+	}
+	return count
+}
+
+// getSessionDuration returns the duration of the current session
+func (av *AdventureView) getSessionDuration() string {
+	if len(av.history) == 0 {
+		return "0s"
+	}
+	
+	first := av.history[0].Timestamp
+	last := av.history[len(av.history)-1].Timestamp
+	duration := last.Sub(first)
+	
+	if duration < time.Minute {
+		return fmt.Sprintf("%ds", int(duration.Seconds()))
+	} else if duration < time.Hour {
+		return fmt.Sprintf("%dm %ds", int(duration.Minutes()), int(duration.Seconds())%60)
+	}
+	return fmt.Sprintf("%dh %dm", int(duration.Hours()), int(duration.Minutes())%60)
 }
 
 // addMessage adds a new message to the conversation history
@@ -338,15 +439,108 @@ func (av *AdventureView) addMessage(msgType MessageType, content string) {
 	}
 }
 
+// Cleanup cleans up Chrome resources
+func (av *AdventureView) Cleanup() {
+	browser.CloseGlobalChromeDPManager()
+	av.chromeDPManager = nil
+}
+
+// startSMTPMonitoring starts the SMTP monitoring service if configured
+func (av *AdventureView) startSMTPMonitoring() {
+	// Load config to check if SMTP monitoring is enabled
+	cwd, _ := os.Getwd()
+	monitorService := email.GetMonitorService(cwd)
+	
+	// Try to start monitoring - it will check config internally
+	if err := monitorService.StartBackgroundMonitoring(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to start SMTP monitoring: %v\n", err)
+	} else {
+		fmt.Fprintf(os.Stderr, "SMTP monitoring started successfully\n")
+	}
+}
+
 // Init implements tea.Model
 func (av *AdventureView) Init() tea.Cmd {
-	return textinput.Blink
+	// Initialize history if needed
+	if av.history == nil {
+		av.history = []ConversationMessage{}
+	}
+	
+	// Add initial welcome message
+	av.addMessage(MessageTypeSystem, "Welcome to Tod Adventure Mode!")
+	av.isLoading = true
+	av.loadingMessage = "Launching Chrome in headless mode..."
+	av.addMessage(MessageTypeSystem, fmt.Sprintf("Target URL: %s", av.configuredURL))
+	
+	// Launch Chrome and then detect connection
+	return tea.Batch(
+		textinput.Blink,
+		av.spinner.Tick,
+		av.launchChrome(),
+	)
+}
+
+// detectChromeConnection checks for Chrome connection
+func (av *AdventureView) detectChromeConnection() tea.Cmd {
+	return func() tea.Msg {
+		// Give Chrome a moment to fully initialize
+		time.Sleep(2 * time.Second)
+		
+		// Check if ChromeDP manager is ready
+		if av.chromeDPManager == nil {
+			return ChromeConnectionMsg{Connected: false}
+		}
+
+		// Get page info using chromedp
+		url, title, err := av.chromeDPManager.GetPageInfo()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to get page info: %v\n", err)
+			return ChromeConnectionMsg{Connected: false}
+		}
+
+		fmt.Fprintf(os.Stderr, "Chrome connected: URL=%s, Title=%s\n", url, title)
+
+		return ChromeConnectionMsg{
+			Connected: true,
+			URL:       url,
+			Title:     title,
+		}
+	}
+}
+
+// ChromeConnectionMsg indicates Chrome connection status
+type ChromeConnectionMsg struct {
+	Connected bool
+	URL       string
+	Title     string
+}
+
+// AdventureChromeLaunchedMsg indicates Chrome has been launched for adventure mode
+type AdventureChromeLaunchedMsg struct{}
+
+// launchChrome launches Chrome using chromedp
+func (av *AdventureView) launchChrome() tea.Cmd {
+	return func() tea.Msg {
+		// Log what we're launching
+		fmt.Fprintf(os.Stderr, "Launching Chrome in headless mode with URL: %s\n", av.configuredURL)
+
+		// Create or get the global ChromeDP manager
+		manager, err := browser.GetGlobalChromeDPManager(av.configuredURL, true)
+		if err != nil {
+			return ChromeConnectionMsg{Connected: false}
+		}
+
+		av.chromeDPManager = manager
+
+		return AdventureChromeLaunchedMsg{}
+	}
 }
 
 // Update implements tea.Model
-func (av *AdventureView) Update(msg tea.Msg) (*AdventureView, tea.Cmd) {
+func (av *AdventureView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var historyCmd tea.Cmd
+	var spinnerCmd tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -365,6 +559,8 @@ func (av *AdventureView) Update(msg tea.Msg) (*AdventureView, tea.Cmd) {
 		
 		switch msg.String() {
 		case "ctrl+c", "esc":
+			// Clean up Chrome before quitting
+			browser.CloseGlobalChromeDPManager()
 			return av, tea.Quit
 		case "enter":
 			return av.handleUserInputOrActionSelection()
@@ -389,7 +585,83 @@ func (av *AdventureView) Update(msg tea.Msg) (*AdventureView, tea.Cmd) {
 		case "tab":
 			return av.handleTabNavigation()
 		}
+
+	// Handle Chrome launched
+	case AdventureChromeLaunchedMsg:
+		av.addMessage(MessageTypeSystem, "Chrome launched successfully!")
+		av.loadingMessage = "Connecting to Chrome..."
+		// Start SMTP monitoring if configured (same as Chrome debugger)
+		av.startSMTPMonitoring()
+		// Now detect the connection
+		return av, av.detectChromeConnection()
+
+	// Handle Chrome connection status
+	case ChromeConnectionMsg:
+		// Stop loading spinner
+		av.isLoading = false
+		av.loadingMessage = ""
+		
+		if msg.Connected {
+			av.addMessage(MessageTypeSuccess, fmt.Sprintf("✓ Connected | 📄 %s | Capture: #%d", msg.Title, len(av.history)+1))
+			av.addMessage(MessageTypeSystem, "")
+			av.addMessage(MessageTypeSystem, "I'm Tod, your AI testing companion. I'll help you explore and test your application.")
+			av.addMessage(MessageTypeSystem, "• Type 'analyze' to discover testable actions")
+			av.addMessage(MessageTypeSystem, "• Type 'analyze <context>' to focus on specific areas")  
+			av.addMessage(MessageTypeSystem, "• Type 'help' for more commands")
+			
+			// Update current page state
+			av.currentPage = PageState{
+				URL:   msg.URL,
+				Title: msg.Title,
+			}
+		} else {
+			av.addMessage(MessageTypeError, "Chrome DevTools not detected")
+			av.addMessage(MessageTypeSystem, "Please ensure Chrome is running with:")
+			av.addMessage(MessageTypeSystem, "  --remote-debugging-port=9222")
+			av.addMessage(MessageTypeSystem, "")
+			av.addMessage(MessageTypeSystem, "Or use the Chrome Debugger option from the main menu")
+		}
+		return av, nil
+
+	// Handle async analyze result
+	case AnalyzeResultMsg:
+		// Stop loading spinner
+		av.isLoading = false
+		av.loadingMessage = ""
+		
+		if msg.Error != nil {
+			av.addMessage(MessageTypeError, msg.Error.Error())
+		} else {
+			if len(msg.Actions) == 0 {
+				av.addMessage(MessageTypeSystem, "No testable actions found on current page.")
+			} else {
+				// Format discovered actions for display
+				var result strings.Builder
+				result.WriteString("Discovered Actions:\n")
+				result.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+				
+				for i, action := range msg.Actions {
+					result.WriteString(fmt.Sprintf("%d. %s\n", i+1, action.Description))
+					result.WriteString(fmt.Sprintf("   Element: %s\n", action.Selector))
+					result.WriteString(fmt.Sprintf("   Action: %s\n", action.Action))
+					result.WriteString(fmt.Sprintf("   Test: %s\n", action.TestScenario))
+					result.WriteString(fmt.Sprintf("   Priority: %s\n", action.Priority))
+					if i < len(msg.Actions)-1 {
+						result.WriteString("\n")
+					}
+				}
+
+				av.addMessage(MessageTypeSuccess, result.String())
+				
+				// Store actions for later use
+				av.storeDiscoveredActions(msg.Actions)
+			}
+		}
+		return av, nil
 	}
+
+	// Always update spinner for animations
+	av.spinner, spinnerCmd = av.spinner.Update(msg)
 
 	// Update history view (for scrolling and text selection)
 	av.historyView, historyCmd = av.historyView.Update(msg)
@@ -406,7 +678,114 @@ func (av *AdventureView) Update(msg tea.Msg) (*AdventureView, tea.Cmd) {
 	av.updateActionFilter()
 	av.updateSuggestions()
 
-	return av, tea.Batch(cmd, historyCmd)
+	return av, tea.Batch(cmd, historyCmd, spinnerCmd)
+}
+
+// AnalyzeResultMsg contains the result of async page analysis
+type AnalyzeResultMsg struct {
+	Actions []testing.DiscoveredAction
+	Error   error
+}
+
+// processAnalyzeCommandAsync processes the analyze command asynchronously
+func (av *AdventureView) processAnalyzeCommandAsync(input string) tea.Cmd {
+	return func() tea.Msg {
+		// Extract user context if provided
+		userContext := ""
+		if strings.HasPrefix(input, "analyze ") {
+			userContext = strings.TrimPrefix(input, "analyze ")
+		}
+
+		// Get current page HTML from Chrome
+		html, err := av.captureCurrentPageHTML()
+		if err != nil {
+			return AnalyzeResultMsg{Error: fmt.Errorf("Failed to capture page HTML: %v", err)}
+		}
+
+		if html == "" {
+			return AnalyzeResultMsg{Error: fmt.Errorf("No Chrome instance connected")}
+		}
+
+		// Analyze with LLM if available
+		if av.llmClient != nil {
+			actions, err := av.discoverActionsWithLLM(html, userContext)
+			if err != nil {
+				return AnalyzeResultMsg{Error: fmt.Errorf("Failed to analyze page: %v", err)}
+			}
+			return AnalyzeResultMsg{Actions: actions}
+		}
+
+		return AnalyzeResultMsg{Error: fmt.Errorf("LLM not configured")}
+	}
+}
+
+// captureCurrentPageHTML captures HTML from the current Chrome page
+func (av *AdventureView) captureCurrentPageHTML() (string, error) {
+	// Check if ChromeDP manager is ready
+	if av.chromeDPManager == nil {
+		return "", fmt.Errorf("Chrome not connected")
+	}
+
+	// Get HTML using chromedp
+	html, err := av.chromeDPManager.GetPageHTML()
+	if err != nil {
+		return "", fmt.Errorf("failed to capture HTML: %w", err)
+	}
+
+	return html, nil
+}
+
+// discoverActionsWithLLM uses LLM to discover actions on the page
+func (av *AdventureView) discoverActionsWithLLM(html string, userContext string) ([]testing.DiscoveredAction, error) {
+	cwd, _ := os.Getwd()
+	discovery := testing.NewActionDiscovery(av.llmClient, cwd)
+	
+	ctx := context.Background()
+	existingTests := []string{} // Could load actual test files here
+	
+	actions, _, _, err := discovery.DiscoverActionsFromHTMLWithContext(ctx, html, existingTests, userContext)
+	if err != nil {
+		return nil, err
+	}
+	
+	return actions, nil
+}
+
+// storeDiscoveredActions stores discovered actions for later use
+func (av *AdventureView) storeDiscoveredActions(actions []testing.DiscoveredAction) {
+	// Convert to PageAction format for compatibility with existing action list
+	av.actionListState.AllActions = []browser.PageAction{}
+	
+	for i, action := range actions {
+		// Map priority to numeric value
+		priority := 5
+		switch action.Priority {
+		case "high":
+			priority = 10
+		case "medium":
+			priority = 5
+		case "low":
+			priority = 1
+		}
+		
+		pageAction := browser.PageAction{
+			ID:          fmt.Sprintf("discovered_%d", i+1),
+			Type:        action.Action,
+			Selector:    action.Selector,
+			Description: action.Description,
+			Category:    "Discovered",
+			Text:        action.TestScenario,
+			Priority:    priority,
+			Attributes:  map[string]string{
+				"tested": fmt.Sprintf("%v", action.IsTested),
+			},
+		}
+		av.actionListState.AllActions = append(av.actionListState.AllActions, pageAction)
+	}
+	
+	// Update filtered actions
+	av.actionListState.FilteredActions = av.actionListState.AllActions
+	av.actionListState.ShowActionList = true
 }
 
 // View implements tea.Model
@@ -414,8 +793,12 @@ func (av *AdventureView) View() string {
 	// Update history view dimensions based on current screen size
 	av.updateHistoryViewDimensions()
 	
-	// Fixed header at top
-	header := av.styles.Header.Render(fmt.Sprintf("[*] Tod Adventure Mode - %s", av.config.Current))
+	// Fixed header at top - make it larger and more prominent
+	headerText := fmt.Sprintf("🤖 Tod Adventure Mode - Your AI Testing Companion")
+	if av.config != nil && av.config.Current != "" {
+		headerText = fmt.Sprintf("🤖 Tod Adventure Mode - Your AI Testing Companion (%s)", av.config.Current)
+	}
+	header := av.styles.Header.Render(headerText)
 
 	// Dynamic history section (selectable textarea)
 	historySection := av.historyView.View()
@@ -426,6 +809,13 @@ func (av *AdventureView) View() string {
 	// Current page info (compact)
 	pageInfo := av.renderCompactPageInfo()
 	bottomSections = append(bottomSections, pageInfo)
+
+	// Show loading spinner if in loading state
+	if av.isLoading && av.loadingMessage != "" {
+		spinnerText := fmt.Sprintf("%s %s", av.spinner.View(), av.loadingMessage)
+		loadingSection := av.styles.LoadingSpinner.Render(spinnerText)
+		bottomSections = append(bottomSections, loadingSection)
+	}
 
 	// Input prompt
 	inputSection := av.renderInputSection()
@@ -459,14 +849,23 @@ func (av *AdventureView) View() string {
 
 func (av *AdventureView) renderCompactPageInfo() string {
 	if av.currentPage.URL == "" || av.currentPage.URL == "Not connected" {
-		return av.styles.PageInfo.Render("[>] Not connected to any page")
+		return av.styles.PageInfo.Render("✗ Not connected | 📄 Not connected - Share and Protect Your Music Before Release | Capture: #1")
 	}
 	
-	content := fmt.Sprintf("[>] %s", av.currentPage.Title)
-	if av.currentPage.Title == "" {
-		content = fmt.Sprintf("[>] %s", av.currentPage.URL)
+	// Format similar to the screenshot: Connected | Title | Capture number
+	captureNum := len(av.history)
+	if captureNum == 0 {
+		captureNum = 1
 	}
 	
+	var title string
+	if av.currentPage.Title != "" {
+		title = av.currentPage.Title
+	} else {
+		title = av.currentPage.URL
+	}
+	
+	content := fmt.Sprintf("✓ Connected | 📄 %s | Capture: #%d", title, captureNum)
 	return av.styles.PageInfo.Render(content)
 }
 
@@ -541,6 +940,10 @@ Input Commands:
   • "fill <field> with <value>" - Fill form fields
   • "click <element>" - Click buttons, links
   • "select <option>" - Select from dropdowns
+
+Analysis Commands:
+  • "analyze" - Discover testable actions on current page
+  • "analyze <context>" - Discover actions with specific focus
 
 Special Commands:
   • "help" - Show/hide this help (or press Ctrl+H)
@@ -843,7 +1246,15 @@ func (av *AdventureView) handleUserInputOrActionSelection() (*AdventureView, tea
 	// Clear the input
 	av.textInput.SetValue("")
 
-	// Process the command as before
+	// Check if this is an analyze command that needs async processing
+	if input == "analyze" || strings.HasPrefix(input, "analyze ") {
+		// Show loading spinner
+		av.isLoading = true
+		av.loadingMessage = "Analyzing page..."
+		return av, av.processAnalyzeCommandAsync(input)
+	}
+
+	// Process other commands synchronously
 	result := av.processCommand(input)
 	
 	// Determine message type based on result content
@@ -860,8 +1271,8 @@ func (av *AdventureView) handleUserInputOrActionSelection() (*AdventureView, tea
 	// Clear old lastResult (keeping for compatibility)
 	av.lastResult = ""
 
-	// Discover new actions after executing command
-	av.discoverPageActions()
+	// Don't discover page actions here - it's blocking
+	// av.discoverPageActions()
 
 	return av, nil
 }
@@ -952,13 +1363,17 @@ func (av *AdventureView) executePageAction(action browser.PageAction) (*Adventur
 		av.actionListState.RecentActions = av.actionListState.RecentActions[:10]
 	}
 
-	// Add user message showing the action taken
-	av.addMessage(MessageTypeUser, fmt.Sprintf("Execute: %s", action.Description))
+	// Add user message showing the action taken with more context
+	actionDescription := action.Description
+	if action.Text != "" && action.Text != action.Description {
+		actionDescription = fmt.Sprintf("%s ('%s')", action.Description, action.Text)
+	}
+	av.addMessage(MessageTypeUser, actionDescription)
 
 	var result string
 	var msgType MessageType
 
-	// Execute the action based on its type
+	// Execute the action based on its type with improved feedback
 	switch action.Type {
 	case "link":
 		if href, exists := action.Attributes["href"]; exists {
@@ -967,7 +1382,7 @@ func (av *AdventureView) executePageAction(action browser.PageAction) (*Adventur
 				result = fmt.Sprintf("Failed to navigate: %s", err.Error())
 				msgType = MessageTypeError
 			} else {
-				result = fmt.Sprintf("Successfully navigated to %s", pageInfo.Title)
+				result = fmt.Sprintf("Navigated to: %s\n  URL: %s", pageInfo.Title, pageInfo.URL)
 				msgType = MessageTypeSuccess
 				av.currentPage = PageState{
 					URL:         pageInfo.URL,
@@ -976,6 +1391,10 @@ func (av *AdventureView) executePageAction(action browser.PageAction) (*Adventur
 				}
 				// Discover new actions after navigation
 				av.discoverPageActions()
+				// Add action count info
+				if len(av.actionListState.AllActions) > 0 {
+					result += fmt.Sprintf("\n  Found %d interactive elements", len(av.actionListState.AllActions))
+				}
 			}
 		}
 	
@@ -985,10 +1404,21 @@ func (av *AdventureView) executePageAction(action browser.PageAction) (*Adventur
 			result = fmt.Sprintf("Failed to click button: %s", err.Error())
 			msgType = MessageTypeError
 		} else {
-			result = fmt.Sprintf("Successfully clicked: %s", action.Description)
+			result = fmt.Sprintf("Clicked button: %s", action.Description)
 			msgType = MessageTypeSuccess
+			// Wait a moment for any page changes
+			time.Sleep(500 * time.Millisecond)
 			// Discover new actions after clicking
 			av.discoverPageActions()
+			// Check if page changed
+			if newPageInfo, err := av.browserClient.GetCurrentPage(); err == nil && newPageInfo.URL != av.currentPage.URL {
+				result += fmt.Sprintf("\n  → Navigated to: %s", newPageInfo.Title)
+				av.currentPage = PageState{
+					URL:         newPageInfo.URL,
+					Title:       newPageInfo.Title,
+					Description: newPageInfo.Description,
+				}
+			}
 		}
 	
 	case "input":
@@ -1081,6 +1511,9 @@ func (av *AdventureView) processCommand(input string) string {
 	case strings.HasPrefix(input, "go to ") || strings.HasPrefix(input, "visit ") || strings.HasPrefix(input, "navigate to ") || strings.HasPrefix(input, "open "):
 		return av.processNavigateCommand(input)
 
+	case input == "analyze" || strings.HasPrefix(input, "analyze "):
+		return av.processAnalyzeCommand(input)
+
 	default:
 		// Try to match against available actions or use LLM interpretation
 		return av.processActionMatch(input)
@@ -1134,8 +1567,8 @@ func (av *AdventureView) processClickCommand(input string) string {
 			}
 		}
 
-		// Discover new actions after click
-		av.discoverPageActions()
+		// Don't discover page actions here - it's blocking
+		// av.discoverPageActions()
 
 		return fmt.Sprintf("✅ Successfully clicked '%s'", element)
 	}
@@ -1173,13 +1606,66 @@ func (av *AdventureView) processNavigateCommand(input string) string {
 			Description: pageInfo.Description,
 		}
 
-		// Discover new actions after navigation
-		av.discoverPageActions()
+		// Don't discover page actions here - it's blocking
+		// av.discoverPageActions()
 
 		return fmt.Sprintf("✅ Successfully navigated to '%s' (%s)", pageInfo.URL, pageInfo.Title)
 	}
 
 	return fmt.Sprintf("Would navigate to '%s' (browser client not connected)", url)
+}
+
+func (av *AdventureView) processAnalyzeCommand(input string) string {
+	// Extract user context if provided
+	userContext := ""
+	if strings.HasPrefix(input, "analyze ") {
+		userContext = strings.TrimPrefix(input, "analyze ")
+	}
+
+	// Get current page HTML from Chrome
+	html, err := av.captureCurrentPageHTML()
+	if err != nil {
+		return fmt.Sprintf("Failed to capture page HTML: %v", err)
+	}
+
+	if html == "" {
+		return "No Chrome instance connected. Please ensure Chrome is running with debugging enabled."
+	}
+
+	// Analyze with LLM if available
+	if av.llmClient != nil {
+		actions, err := av.discoverActionsWithLLM(html, userContext)
+		if err != nil {
+			return fmt.Sprintf("Failed to analyze page: %v", err)
+		}
+
+		if len(actions) == 0 {
+			return "No testable actions found on current page."
+		}
+
+		// Format discovered actions for display
+		var result strings.Builder
+		result.WriteString("Discovered Actions:\n")
+		result.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+		
+		for i, action := range actions {
+			result.WriteString(fmt.Sprintf("%d. %s\n", i+1, action.Description))
+			result.WriteString(fmt.Sprintf("   Element: %s\n", action.Selector))
+			result.WriteString(fmt.Sprintf("   Action: %s\n", action.Action))
+			result.WriteString(fmt.Sprintf("   Test: %s\n", action.TestScenario))
+			result.WriteString(fmt.Sprintf("   Priority: %s\n", action.Priority))
+			if i < len(actions)-1 {
+				result.WriteString("\n")
+			}
+		}
+
+		// Store actions for later use
+		av.storeDiscoveredActions(actions)
+
+		return result.String()
+	}
+
+	return "LLM not configured. Please configure AI settings to use action discovery."
 }
 
 func (av *AdventureView) processActionMatch(input string) string {

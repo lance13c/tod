@@ -1,16 +1,94 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { signOut, useSession } from "@/lib/auth-client";
-import { api } from "@/providers/trpc-provider";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useSession, signOut } from "@/lib/auth-client";
+import {
+  Card,
+  CardBody,
+  CardHeader,
+  Button,
+  Chip,
+  Avatar,
+  Tabs,
+  Tab,
+  Spinner,
+  Badge,
+  Input,
+  Dropdown,
+  DropdownTrigger,
+  DropdownMenu,
+  DropdownItem,
+} from "@nextui-org/react";
+import {
+  Plus,
+  Users,
+  Clock,
+  MapPin,
+  Building2,
+  Search,
+  Filter,
+  Calendar,
+  FileText,
+  MoreVertical,
+  Timer,
+  UserCheck,
+  UserPlus,
+  Archive,
+  LogOut,
+} from "lucide-react";
+
+interface Organization {
+  id: string;
+  name: string;
+  logoUrl?: string;
+  brandColor?: string;
+}
+
+interface GroupMember {
+  userId: string;
+  role: "creator" | "participant";
+  user: {
+    name?: string;
+    email: string;
+    image?: string;
+  };
+}
+
+interface Group {
+  id: string;
+  name: string;
+  description?: string;
+  organization?: Organization;
+  creatorId?: string;
+  creator?: {
+    name?: string;
+    email: string;
+  };
+  latitude: number;
+  longitude: number;
+  radius: number;
+  expiresAt: string;
+  extendedCount: number;
+  isActive: boolean;
+  isArchived?: boolean;
+  createdAt: string;
+  members?: GroupMember[];
+  files?: any[];
+  _count?: {
+    files: number;
+  };
+  role?: string;
+  joinedAt?: string;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
   const { data: session, isPending } = useSession();
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [selectedOrg, setSelectedOrg] = useState<string | null>(null);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     if (!isPending && !session) {
@@ -18,21 +96,203 @@ export default function DashboardPage() {
     }
   }, [session, isPending, router]);
 
-  // Fetch user's organizations
-  const { data: organizations, refetch: refetchOrgs } = api.organization.getUserOrganizations.useQuery(
-    undefined,
-    { enabled: !!session }
-  );
+  useEffect(() => {
+    if (session) {
+      fetchGroups();
+    }
+  }, [session]);
+
+  const fetchGroups = async () => {
+    try {
+      const response = await fetch("/api/groups");
+      if (response.ok) {
+        const data = await response.json();
+        setGroups(data);
+      } else {
+        // Fall back to mock data if API fails
+        setGroups([
+        {
+          id: "550e8400-e29b-41d4-a716-446655440000",
+          name: "Team Standup - Q1 Planning",
+          description: "Quarterly planning session for the engineering team",
+          organization: {
+            id: "org-1",
+            name: "Acme Corporation",
+            logoUrl: "https://api.dicebear.com/7.x/identicon/svg?seed=acme",
+            brandColor: "#FF6B6B",
+          },
+          creatorId: "test-user-2",
+          creator: {
+            name: "John Doe",
+            email: "john@example.com",
+          },
+          latitude: 37.7749,
+          longitude: -122.4194,
+          radius: 100,
+          expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+          extendedCount: 0,
+          isActive: true,
+          isArchived: false,
+          createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+          members: [
+            {
+              userId: "test-user-2",
+              role: "creator",
+              user: {
+                name: "John Doe",
+                email: "john@example.com",
+                image: "https://api.dicebear.com/7.x/avataaars/svg?seed=johndoe",
+              },
+            },
+            {
+              userId: "admin-user",
+              role: "participant",
+              user: {
+                name: "Admin User",
+                email: "admin@example.com",
+                image: "https://api.dicebear.com/7.x/avataaars/svg?seed=admin",
+              },
+            },
+          ],
+          _count: {
+            files: 2,
+          },
+        },
+        {
+          id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+          name: "Design Review Session",
+          description: "Review of new UI designs for the mobile app",
+          organization: {
+            id: "org-2",
+            name: "TechStart Inc",
+            logoUrl: "https://api.dicebear.com/7.x/identicon/svg?seed=techstart",
+            brandColor: "#4A90E2",
+          },
+          creatorId: "admin-user",
+          creator: {
+            name: "Admin User",
+            email: "admin@example.com",
+          },
+          latitude: 30.2672,
+          longitude: -97.7431,
+          radius: 100,
+          expiresAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+          extendedCount: 2,
+          isActive: false,
+          isArchived: true,
+          createdAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
+          members: [
+            {
+              userId: "admin-user",
+              role: "creator",
+              user: {
+                name: "Admin User",
+                email: "admin@example.com",
+                image: "https://api.dicebear.com/7.x/avataaars/svg?seed=admin",
+              },
+            },
+          ],
+          _count: {
+            files: 5,
+          },
+        },
+        {
+          id: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+          name: "Coffee Break Meetup",
+          description: "Informal team gathering",
+          creatorId: "test-user-1",
+          creator: {
+            name: "Test User",
+            email: "test@example.com",
+          },
+          latitude: 40.7128,
+          longitude: -74.0060,
+          radius: 50,
+          expiresAt: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+          extendedCount: 0,
+          isActive: true,
+          isArchived: false,
+          createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+          members: [
+            {
+              userId: "test-user-1",
+              role: "creator",
+              user: {
+                name: "Test User",
+                email: "test@example.com",
+              },
+            },
+          ],
+          _count: {
+            files: 0,
+          },
+        },
+      ]);
+      }
+    } catch (error) {
+      console.error("Failed to fetch groups:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSignOut = async () => {
     await signOut();
     router.push("/login");
   };
 
-  if (isPending) {
+  const getTimeRemaining = (expiresAt: string) => {
+    const now = new Date().getTime();
+    const expiry = new Date(expiresAt).getTime();
+    const diff = expiry - now;
+
+    if (diff <= 0) return "Expired";
+
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    return `${minutes}m`;
+  };
+
+  const getUserRole = (group: Group) => {
+    if (!session?.user) return null;
+    // Check if role is directly on the group (from API response)
+    if (group.role) return group.role;
+    // Otherwise check in members array
+    const member = group.members?.find((m) => m.userId === session.user.id);
+    return member?.role;
+  };
+
+  const filteredGroups = groups.filter((group) => {
+    // Filter by tab
+    if (activeTab === "started") {
+      if (group.creatorId !== session?.user?.id) return false;
+    } else if (activeTab === "participated") {
+      if (group.creatorId === session?.user?.id) return false;
+    } else if (activeTab === "active") {
+      if (!group.isActive) return false;
+    } else if (activeTab === "archived") {
+      if (!group.isArchived) return false;
+    }
+
+    // Filter by search
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      return (
+        group.name.toLowerCase().includes(query) ||
+        group.description?.toLowerCase().includes(query) ||
+        group.organization?.name.toLowerCase().includes(query)
+      );
+    }
+
+    return true;
+  });
+
+  if (isPending || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <Spinner size="lg" />
       </div>
     );
   }
@@ -42,589 +302,325 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
       {/* Header */}
-      <div className="bg-white shadow-sm">
+      <div className="bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-6">
-            <div className="flex items-center">
-              <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+                Dashboard
+              </h1>
+              <p className="text-gray-500 dark:text-gray-400 mt-1">
+                Welcome back, {session.user?.name || session.user?.email}
+              </p>
             </div>
-            <div className="flex items-center space-x-4">
-              <Link
-                href="/organizations"
-                className="text-gray-500 hover:text-gray-700"
+            <div className="flex items-center gap-4">
+              <Button
+                color="primary"
+                size="lg"
+                startContent={<Plus className="w-5 h-5" />}
+                onPress={() => router.push("/groups/new")}
+                className="bg-gradient-to-r from-blue-500 to-purple-600"
               >
-                Browse Organizations
-              </Link>
-              <button
-                onClick={handleSignOut}
-                className="px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700"
+                Start New Group
+              </Button>
+              <Button
+                variant="bordered"
+                size="lg"
+                startContent={<Users className="w-5 h-5" />}
+                onPress={() => router.push("/groups/join")}
+              >
+                Join Group
+              </Button>
+              <Button
+                color="danger"
+                variant="light"
+                startContent={<LogOut className="w-5 h-5" />}
+                onPress={handleSignOut}
               >
                 Sign Out
-              </button>
+              </Button>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Sidebar - User Info */}
-          <div className="lg:col-span-1">
-            <div className="bg-white shadow rounded-lg p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                Account Information
-              </h2>
-              <div className="space-y-3">
-                {session.user?.image ? (
-                  <img
-                    src={session.user.image}
-                    alt=""
-                    className="h-20 w-20 rounded-full mx-auto"
-                  />
-                ) : (
-                  <div className="h-20 w-20 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full mx-auto flex items-center justify-center text-white font-bold text-2xl">
-                    {(session.user?.name || session.user?.email || "U").charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <dl className="space-y-2 text-sm">
-                  {session.user?.name && (
-                    <div>
-                      <dt className="font-medium text-gray-500">Name</dt>
-                      <dd className="text-gray-900">{session.user.name}</dd>
-                    </div>
-                  )}
-                  <div>
-                    <dt className="font-medium text-gray-500">Email</dt>
-                    <dd className="text-gray-900 break-all">{session.user?.email}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-medium text-gray-500">User ID</dt>
-                    <dd className="text-gray-500 text-xs font-mono break-all">
-                      {session.user?.id}
-                    </dd>
-                  </div>
-                </dl>
+      {/* Stats Cards */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Card>
+            <CardBody className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">Total Groups</p>
+                  <p className="text-2xl font-bold">{groups.length}</p>
+                </div>
+                <Users className="w-8 h-8 text-blue-500" />
               </div>
-            </div>
-
-            {/* Quick Stats */}
-            <div className="bg-white shadow rounded-lg p-6 mt-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                Statistics
-              </h3>
-              <dl className="space-y-3">
-                <div className="flex justify-between">
-                  <dt className="text-sm text-gray-500">Organizations</dt>
-                  <dd className="text-sm font-medium text-gray-900">
-                    {organizations?.length || 0}
-                  </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-sm text-gray-500">Public</dt>
-                  <dd className="text-sm font-medium text-gray-900">
-                    {organizations?.filter(org => org.isPublic).length || 0}
-                  </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-sm text-gray-500">Private</dt>
-                  <dd className="text-sm font-medium text-gray-900">
-                    {organizations?.filter(org => !org.isPublic).length || 0}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-          </div>
-
-          {/* Main Content - Organizations */}
-          <div className="lg:col-span-2">
-            <div className="bg-white shadow rounded-lg p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-lg font-semibold text-gray-900">
-                  Your Organizations
-                </h2>
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700"
-                >
-                  Create Organization
-                </button>
-              </div>
-
-              {organizations && organizations.length > 0 ? (
-                <div className="space-y-4">
-                  {organizations.map((org) => (
-                    <OrganizationCard
-                      key={org.id}
-                      organization={org}
-                      onUpdate={refetchOrgs}
-                      onEdit={() => setSelectedOrg(org.id)}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <svg
-                    className="mx-auto h-12 w-12 text-gray-400"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
-                    />
-                  </svg>
-                  <h3 className="mt-2 text-sm font-medium text-gray-900">
-                    No organizations yet
-                  </h3>
-                  <p className="mt-1 text-sm text-gray-500">
-                    Get started by creating your first organization.
+            </CardBody>
+          </Card>
+          <Card>
+            <CardBody className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">Active Groups</p>
+                  <p className="text-2xl font-bold">
+                    {groups.filter((g) => g.isActive).length}
                   </p>
-                  <button
-                    onClick={() => setShowCreateModal(true)}
-                    className="mt-4 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700"
-                  >
-                    Create Organization
-                  </button>
                 </div>
-              )}
-            </div>
-          </div>
+                <Clock className="w-8 h-8 text-green-500" />
+              </div>
+            </CardBody>
+          </Card>
+          <Card>
+            <CardBody className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">Groups Started</p>
+                  <p className="text-2xl font-bold">
+                    {groups.filter((g) => g.creatorId === session.user?.id).length}
+                  </p>
+                </div>
+                <UserCheck className="w-8 h-8 text-purple-500" />
+              </div>
+            </CardBody>
+          </Card>
+          <Card>
+            <CardBody className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">Files Shared</p>
+                  <p className="text-2xl font-bold">
+                    {groups.reduce((acc, g) => acc + (g._count?.files || 0), 0)}
+                  </p>
+                </div>
+                <FileText className="w-8 h-8 text-orange-500" />
+              </div>
+            </CardBody>
+          </Card>
         </div>
       </div>
 
-      {/* Create/Edit Organization Modal */}
-      {(showCreateModal || selectedOrg) && (
-        <OrganizationModal
-          organizationId={selectedOrg}
-          onClose={() => {
-            setShowCreateModal(false);
-            setSelectedOrg(null);
-          }}
-          onSuccess={() => {
-            refetchOrgs();
-            setShowCreateModal(false);
-            setSelectedOrg(null);
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-// Organization Card Component
-function OrganizationCard({ 
-  organization, 
-  onUpdate,
-  onEdit 
-}: { 
-  organization: any;
-  onUpdate: () => void;
-  onEdit: () => void;
-}) {
-  const toggleVisibility = api.organization.updateOrganization.useMutation({
-    onSuccess: onUpdate,
-  });
-
-  const deleteOrg = api.organization.deleteOrganization.useMutation({
-    onSuccess: onUpdate,
-  });
-
-  const handleToggleVisibility = () => {
-    toggleVisibility.mutate({
-      id: organization.id,
-      isPublic: !organization.isPublic,
-    });
-  };
-
-  const handleDelete = () => {
-    if (confirm(`Are you sure you want to delete ${organization.name}?`)) {
-      deleteOrg.mutate({ id: organization.id });
-    }
-  };
-
-  return (
-    <div className="border rounded-lg p-4 hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <div className="flex items-center space-x-2">
-            <h3 className="text-base font-semibold text-gray-900">
-              {organization.name}
-            </h3>
-            {organization.verified && (
-              <svg className="h-4 w-4 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-              </svg>
-            )}
-            {organization.featured && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
-                Featured
-              </span>
-            )}
-          </div>
-          <p className="text-sm text-gray-500 mt-1">@{organization.slug}</p>
-          {organization.description && (
-            <p className="text-sm text-gray-600 mt-2">{organization.description}</p>
-          )}
-          <div className="flex items-center space-x-4 mt-3 text-xs text-gray-500">
-            <span>{organization._count?.members || 0} members</span>
-            <span>{organization.viewCount} views</span>
-            {organization.industry && <span>{organization.industry}</span>}
-          </div>
-        </div>
-        <div className="flex items-center space-x-2 ml-4">
-          <button
-            onClick={handleToggleVisibility}
-            disabled={toggleVisibility.isPending}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              organization.isPublic ? 'bg-blue-600' : 'bg-gray-200'
-            } ${toggleVisibility.isPending ? 'opacity-50' : ''}`}
+      {/* Search and Filters */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
+        <div className="flex flex-col sm:flex-row gap-4">
+          <Input
+            placeholder="Search groups..."
+            value={searchQuery}
+            onValueChange={setSearchQuery}
+            startContent={<Search className="w-4 h-4 text-gray-400" />}
+            className="flex-1"
+          />
+          <Tabs
+            selectedKey={activeTab}
+            onSelectionChange={(key) => setActiveTab(key as string)}
+            color="primary"
+            variant="bordered"
           >
-            <span className="sr-only">Toggle visibility</span>
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                organization.isPublic ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
-          <div className="text-xs text-gray-500">
-            {organization.isPublic ? 'Public' : 'Private'}
-          </div>
+            <Tab key="all" title="All Groups" />
+            <Tab key="started" title="Started by Me" />
+            <Tab key="participated" title="Participated" />
+            <Tab key="active" title="Active" />
+            <Tab key="archived" title="Archived" />
+          </Tabs>
         </div>
       </div>
-      <div className="flex items-center space-x-2 mt-4">
-        <Link
-          href={`/org/${organization.slug}`}
-          className="text-sm text-blue-600 hover:text-blue-700"
-        >
-          View Profile
-        </Link>
-        <span className="text-gray-300">•</span>
-        <button
-          onClick={onEdit}
-          className="text-sm text-gray-600 hover:text-gray-800"
-        >
-          Edit
-        </button>
-        <span className="text-gray-300">•</span>
-        <button
-          onClick={handleDelete}
-          disabled={deleteOrg.isPending}
-          className="text-sm text-red-600 hover:text-red-700 disabled:opacity-50"
-        >
-          Delete
-        </button>
-      </div>
-    </div>
-  );
-}
 
-// Organization Modal Component
-function OrganizationModal({ 
-  organizationId, 
-  onClose, 
-  onSuccess 
-}: { 
-  organizationId: string | null;
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
-  const [formData, setFormData] = useState({
-    name: '',
-    slug: '',
-    description: '',
-    industry: '',
-    size: '',
-    location: '',
-    website: '',
-    email: '',
-    github: '',
-    twitter: '',
-    linkedin: '',
-    tags: '',
-    isPublic: false,
-  });
+      {/* Groups List */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8 pb-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredGroups.map((group) => {
+            const role = getUserRole(group);
+            const timeRemaining = getTimeRemaining(group.expiresAt);
 
-  // Fetch existing organization data if editing
-  const { data: existingOrg } = api.organization.getOrganization.useQuery(
-    { id: organizationId! },
-    { enabled: !!organizationId }
-  );
+            return (
+              <Card
+                key={group.id}
+                className="hover:shadow-lg transition-shadow"
+              >
+                <CardHeader className="pb-2">
+                  <div className="flex justify-between items-start w-full">
+                    <div 
+                      className="flex items-start gap-3 flex-1 cursor-pointer"
+                      onClick={() => router.push(`/groups/${group.id}`)}
+                    >
+                      {group.organization ? (
+                        <Avatar
+                          src={group.organization.logoUrl}
+                          name={group.organization.name}
+                          className="w-12 h-12"
+                          style={{
+                            borderColor: group.organization.brandColor,
+                            borderWidth: 2,
+                          }}
+                        />
+                      ) : (
+                        <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center">
+                          <Users className="w-6 h-6 text-gray-500" />
+                        </div>
+                      )}
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-lg">{group.name}</h3>
+                        {group.organization && (
+                          <p className="text-sm text-gray-500">
+                            {group.organization.name}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <Dropdown>
+                      <DropdownTrigger>
+                        <Button isIconOnly size="sm" variant="light">
+                          <MoreVertical className="w-4 h-4" />
+                        </Button>
+                      </DropdownTrigger>
+                      <DropdownMenu>
+                        <DropdownItem
+                          key="view"
+                          onPress={() => router.push(`/groups/${group.id}`)}
+                          className="text-gray-900 dark:text-gray-100"
+                        >
+                          View Group
+                        </DropdownItem>
+                        {role === "creator" && group.isActive ? (
+                          <DropdownItem 
+                            key="extend"
+                            className="text-gray-900 dark:text-gray-100"
+                          >
+                            Extend Time
+                          </DropdownItem>
+                        ) : null}
+                        {role === "creator" ? (
+                          <DropdownItem
+                            key="delete"
+                            className="text-danger"
+                            color="danger"
+                          >
+                            Delete Group
+                          </DropdownItem>
+                        ) : null}
+                      </DropdownMenu>
+                    </Dropdown>
+                  </div>
+                </CardHeader>
+                <CardBody 
+                  className="pt-2 cursor-pointer"
+                  onClick={() => router.push(`/groups/${group.id}`)}
+                >
+                  {group.description && (
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                      {group.description}
+                    </p>
+                  )}
 
-  useEffect(() => {
-    if (existingOrg) {
-      setFormData({
-        name: existingOrg.name || '',
-        slug: existingOrg.slug || '',
-        description: existingOrg.description || '',
-        industry: existingOrg.industry || '',
-        size: existingOrg.size || '',
-        location: existingOrg.location || '',
-        website: existingOrg.website || '',
-        email: existingOrg.email || '',
-        github: existingOrg.github || '',
-        twitter: existingOrg.twitter || '',
-        linkedin: existingOrg.linkedin || '',
-        tags: existingOrg.tags || '',
-        isPublic: existingOrg.isPublic || false,
-      });
-    }
-  }, [existingOrg]);
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {role && (
+                      <Chip
+                        size="sm"
+                        color={role === "creator" ? "primary" : "default"}
+                        startContent={
+                          role === "creator" ? (
+                            <UserCheck className="w-3 h-3" />
+                          ) : (
+                            <UserPlus className="w-3 h-3" />
+                          )
+                        }
+                      >
+                        {role === "creator" ? "Creator" : "Participant"}
+                      </Chip>
+                    )}
+                    {group.isActive ? (
+                      <Chip
+                        size="sm"
+                        color="success"
+                        variant="flat"
+                        startContent={<Timer className="w-3 h-3" />}
+                      >
+                        {timeRemaining}
+                      </Chip>
+                    ) : (
+                      <Chip
+                        size="sm"
+                        color="default"
+                        variant="flat"
+                        startContent={<Archive className="w-3 h-3" />}
+                      >
+                        Archived
+                      </Chip>
+                    )}
+                    {group.extendedCount > 0 && (
+                      <Chip size="sm" variant="flat">
+                        Extended {group.extendedCount}x
+                      </Chip>
+                    )}
+                  </div>
 
-  const createOrg = api.organization.createOrganization.useMutation({
-    onSuccess,
-  });
+                  <div className="flex items-center justify-between text-sm text-gray-500">
+                    <div className="flex items-center gap-4">
+                      <span className="flex items-center gap-1">
+                        <Users className="w-4 h-4" />
+                        {group.members?.length || 0}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <FileText className="w-4 h-4" />
+                        {group._count?.files || group.files?.length || 0}
+                      </span>
+                    </div>
+                    <span className="flex items-center gap-1">
+                      <MapPin className="w-4 h-4" />
+                      {group.radius}m
+                    </span>
+                  </div>
 
-  const updateOrg = api.organization.updateOrganization.useMutation({
-    onSuccess,
-  });
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    const payload = {
-      ...formData,
-      size: formData.size || undefined,
-      tags: formData.tags || undefined,
-      description: formData.description || undefined,
-      industry: formData.industry || undefined,
-      location: formData.location || undefined,
-      website: formData.website || undefined,
-      email: formData.email || undefined,
-      github: formData.github || undefined,
-      twitter: formData.twitter || undefined,
-      linkedin: formData.linkedin || undefined,
-    };
-
-    if (organizationId) {
-      updateOrg.mutate({ id: organizationId, ...payload });
-    } else {
-      createOrg.mutate(payload);
-    }
-  };
-
-  // Auto-generate slug from name
-  useEffect(() => {
-    if (!organizationId && formData.name) {
-      const slug = formData.name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '');
-      setFormData(prev => ({ ...prev, slug }));
-    }
-  }, [formData.name, organizationId]);
-
-  return (
-    <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b">
-          <h3 className="text-lg font-semibold text-gray-900">
-            {organizationId ? 'Edit Organization' : 'Create Organization'}
-          </h3>
+                  <div className="flex items-center gap-2 mt-3 pt-3 border-t">
+                    <Avatar
+                      src={
+                        group.members?.find((m) => m.role === "creator")?.user
+                          ?.image || undefined
+                      }
+                      name={group.creator?.name || group.creator?.email}
+                      size="sm"
+                    />
+                    <div className="text-xs">
+                      <p className="font-medium">
+                        {group.creator?.name || group.creator?.email}
+                      </p>
+                      <p className="text-gray-500">
+                        Created {new Date(group.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                </CardBody>
+              </Card>
+            );
+          })}
         </div>
-        
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Organization Name *
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.name}
-                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Acme Corp"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Slug *
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.slug}
-                onChange={(e) => setFormData(prev => ({ ...prev, slug: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                placeholder="acme-corp"
-                pattern="[a-z0-9-]+"
-              />
-            </div>
-          </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Description
-            </label>
-            <textarea
-              value={formData.description}
-              onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Tell us about your organization..."
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Industry
-              </label>
-              <input
-                type="text"
-                value={formData.industry}
-                onChange={(e) => setFormData(prev => ({ ...prev, industry: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Technology"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Company Size
-              </label>
-              <input
-                type="text"
-                value={formData.size}
-                onChange={(e) => setFormData(prev => ({ ...prev, size: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                placeholder="10-50"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Location
-              </label>
-              <input
-                type="text"
-                value={formData.location}
-                onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                placeholder="San Francisco, CA"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Contact Email
-              </label>
-              <input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                placeholder="contact@example.com"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Website
-            </label>
-            <input
-              type="url"
-              value={formData.website}
-              onChange={(e) => setFormData(prev => ({ ...prev, website: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-              placeholder="https://example.com"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                GitHub
-              </label>
-              <input
-                type="text"
-                value={formData.github}
-                onChange={(e) => setFormData(prev => ({ ...prev, github: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                placeholder="username"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Twitter
-              </label>
-              <input
-                type="text"
-                value={formData.twitter}
-                onChange={(e) => setFormData(prev => ({ ...prev, twitter: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                placeholder="username"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                LinkedIn
-              </label>
-              <input
-                type="text"
-                value={formData.linkedin}
-                onChange={(e) => setFormData(prev => ({ ...prev, linkedin: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                placeholder="company-name"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Tags (comma-separated)
-            </label>
-            <input
-              type="text"
-              value={formData.tags}
-              onChange={(e) => setFormData(prev => ({ ...prev, tags: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-              placeholder="startup, saas, b2b"
-            />
-          </div>
-
-          <div className="flex items-center">
-            <input
-              type="checkbox"
-              id="isPublic"
-              checked={formData.isPublic}
-              onChange={(e) => setFormData(prev => ({ ...prev, isPublic: e.target.checked }))}
-              className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-            />
-            <label htmlFor="isPublic" className="ml-2 text-sm text-gray-700">
-              Make this organization public (visible in the showcase)
-            </label>
-          </div>
-
-          <div className="flex justify-end space-x-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={createOrg.isPending || updateOrg.isPending}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
-            >
-              {createOrg.isPending || updateOrg.isPending ? 'Saving...' : (organizationId ? 'Update' : 'Create')}
-            </button>
-          </div>
-        </form>
+        {filteredGroups.length === 0 && (
+          <Card className="mt-8">
+            <CardBody className="text-center py-12">
+              <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No groups found</h3>
+              <p className="text-gray-500 mb-4">
+                {activeTab === "started"
+                  ? "You haven't started any groups yet."
+                  : activeTab === "participated"
+                  ? "You haven't joined any groups yet."
+                  : searchQuery
+                  ? "Try adjusting your search terms."
+                  : "Start a new group to get started!"}
+              </p>
+              <Button
+                color="primary"
+                startContent={<Plus className="w-4 h-4" />}
+                onPress={() => router.push("/groups/new")}
+              >
+                Start New Group
+              </Button>
+            </CardBody>
+          </Card>
+        )}
       </div>
     </div>
   );

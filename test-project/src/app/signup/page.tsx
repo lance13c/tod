@@ -12,14 +12,15 @@ import {
   Button,
   Checkbox,
   Divider,
-  Progress
+  Progress,
+  Chip
 } from "@nextui-org/react";
+import { Mail, User, Lock, Eye, EyeOff, ArrowRight, UserPlus, Shield } from "lucide-react";
 
 export default function SignUpPage() {
   const router = useRouter();
   const [formData, setFormData] = useState({
     email: "",
-    username: "",
     password: "",
     confirmPassword: "",
     name: "",
@@ -88,14 +89,20 @@ export default function SignUpPage() {
     setLoading(true);
 
     try {
-      await signUp.email({
+      const result = await signUp.email({
         email: formData.email,
         password: formData.password,
         name: formData.name,
-        username: formData.username,
-        callbackURL: "/verify-email",
+        callbackURL: "/dashboard",
       });
-      router.push("/verify-email?message=check-email");
+      
+      // If user is already logged in after signup, go to dashboard
+      if (result.data?.user) {
+        router.push("/dashboard");
+      } else {
+        // Otherwise show the email verification message
+        router.push("/verify-email?message=check-email");
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to create account");
       console.error(err);
@@ -105,73 +112,77 @@ export default function SignUpPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
-      <Card className="max-w-md w-full" data-testid="signup-card">
-        <CardHeader className="flex flex-col gap-1 items-center pb-6">
-          <h1 className="text-2xl font-bold" data-testid="signup-title">Create Account</h1>
-          <p className="text-small text-default-500" data-testid="signup-subtitle">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex items-center justify-center p-4">
+      {/* Background decorations */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-200 dark:bg-purple-900/20 rounded-full blur-3xl opacity-30"></div>
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-blue-200 dark:bg-blue-900/20 rounded-full blur-3xl opacity-30"></div>
+      </div>
+
+      <Card className="max-w-md w-full backdrop-blur-md bg-white/90 dark:bg-gray-800/90 shadow-2xl" data-testid="signup-card">
+        <CardHeader className="flex flex-col gap-2 items-center pb-2 pt-8 px-8">
+          <div className="p-3 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl mb-2">
+            <UserPlus className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent" data-testid="signup-title">
+            Create Account
+          </h1>
+          <p className="text-default-500 text-center" data-testid="signup-subtitle">
             Join us to get started with your journey
           </p>
         </CardHeader>
-        <CardBody>
+        
+        <CardBody className="pb-8 px-8">
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <Input
-              label="Full Name"
-              placeholder="John Doe"
+              placeholder="Enter your full name"
               value={formData.name}
               onValueChange={(value) => handleChange("name", value)}
               variant="bordered"
               startContent={
-                <svg className="w-4 h-4 text-default-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
+                <div className="pointer-events-none flex items-center">
+                  <User className="w-4 h-4 text-default-400" />
+                </div>
               }
               data-testid="name-input"
+              classNames={{
+                label: "text-default-600",
+                inputWrapper: "border-default-200 data-[hover=true]:border-primary",
+                innerWrapper: "gap-3",
+              }}
             />
 
             <Input
-              label="Username"
-              placeholder="johndoe"
-              value={formData.username}
-              onValueChange={(value) => handleChange("username", value)}
-              variant="bordered"
-              isRequired
-              startContent={
-                <svg className="w-4 h-4 text-default-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
-                </svg>
-              }
-              data-testid="username-input"
-            />
-
-            <Input
-              label="Email"
-              placeholder="john@example.com"
+              placeholder="Enter your email"
               type="email"
               value={formData.email}
               onValueChange={(value) => handleChange("email", value)}
               variant="bordered"
               isRequired
               startContent={
-                <svg className="w-4 h-4 text-default-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
+                <div className="pointer-events-none flex items-center">
+                  <Mail className="w-4 h-4 text-default-400" />
+                </div>
               }
               data-testid="email-input"
+              classNames={{
+                label: "text-default-600",
+                inputWrapper: "border-default-200 data-[hover=true]:border-primary",
+                innerWrapper: "gap-3",
+              }}
             />
 
             <div className="space-y-2">
               <Input
-                label="Password"
-                placeholder="Minimum 8 characters"
+                placeholder="Create a password (min 8 characters)"
                 value={formData.password}
                 onValueChange={(value) => handleChange("password", value)}
                 variant="bordered"
                 isRequired
                 startContent={
-                  <svg className="w-4 h-4 text-default-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                  </svg>
+                  <div className="pointer-events-none flex items-center">
+                    <Lock className="w-4 h-4 text-default-400" />
+                  </div>
                 }
                 endContent={
                   <button
@@ -181,25 +192,25 @@ export default function SignUpPage() {
                     data-testid="toggle-password-visibility"
                   >
                     {isVisible ? (
-                      <svg className="w-4 h-4 text-default-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                      </svg>
+                      <EyeOff className="w-4 h-4 text-default-400" />
                     ) : (
-                      <svg className="w-4 h-4 text-default-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                      </svg>
+                      <Eye className="w-4 h-4 text-default-400" />
                     )}
                   </button>
                 }
                 type={isVisible ? "text" : "password"}
                 data-testid="password-input"
+                classNames={{
+                  label: "text-default-600",
+                  inputWrapper: "border-default-200 data-[hover=true]:border-primary",
+                  innerWrapper: "gap-3",
+                }}
               />
               {formData.password && (
                 <div className="space-y-1">
                   <div className="flex justify-between items-center text-tiny">
-                    <span>Password strength:</span>
-                    <span className={`text-${getPasswordStrengthColor()}`}>
+                    <span className="text-default-500">Password strength:</span>
+                    <span className={`font-medium`}>
                       {getPasswordStrengthText()}
                     </span>
                   </div>
@@ -214,16 +225,15 @@ export default function SignUpPage() {
             </div>
 
             <Input
-              label="Confirm Password"
-              placeholder="Re-enter password"
+              placeholder="Confirm your password"
               value={formData.confirmPassword}
               onValueChange={(value) => handleChange("confirmPassword", value)}
               variant="bordered"
               isRequired
               startContent={
-                <svg className="w-4 h-4 text-default-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
+                <div className="pointer-events-none flex items-center">
+                  <Shield className="w-4 h-4 text-default-400" />
+                </div>
               }
               endContent={
                 <button
@@ -233,14 +243,9 @@ export default function SignUpPage() {
                   data-testid="toggle-confirm-password-visibility"
                 >
                   {isConfirmVisible ? (
-                    <svg className="w-4 h-4 text-default-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                    </svg>
+                    <EyeOff className="w-4 h-4 text-default-400" />
                   ) : (
-                    <svg className="w-4 h-4 text-default-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
+                    <Eye className="w-4 h-4 text-default-400" />
                   )}
                 </button>
               }
@@ -248,15 +253,24 @@ export default function SignUpPage() {
               data-testid="confirm-password-input"
               color={formData.confirmPassword && formData.password !== formData.confirmPassword ? "danger" : "default"}
               errorMessage={formData.confirmPassword && formData.password !== formData.confirmPassword ? "Passwords do not match" : ""}
+              classNames={{
+                label: "text-default-600",
+                inputWrapper: "border-default-200 data-[hover=true]:border-primary",
+                innerWrapper: "gap-3",
+              }}
             />
 
-            <Checkbox 
-              isSelected={agreedToTerms} 
-              onValueChange={setAgreedToTerms}
-              size="sm"
-              data-testid="terms-checkbox"
-            >
-              <span className="text-small">
+            <div className="flex items-start gap-2 mb-2">
+              <Checkbox 
+                isSelected={agreedToTerms} 
+                onValueChange={setAgreedToTerms}
+                size="sm"
+                data-testid="terms-checkbox"
+                classNames={{
+                  wrapper: "after:bg-gradient-to-r after:from-blue-500 after:to-purple-500 mt-1",
+                }}
+              />
+              <span className="text-small leading-snug pt-0.5">
                 I agree to the{" "}
                 <Link href="/terms" className="text-primary hover:underline">
                   Terms and Conditions
@@ -266,44 +280,42 @@ export default function SignUpPage() {
                   Privacy Policy
                 </Link>
               </span>
-            </Checkbox>
+            </div>
 
             {error && (
-              <Card className="bg-danger-50 dark:bg-danger-900/20">
-                <CardBody>
-                  <p className="text-sm text-danger" data-testid="error-message">
-                    {error}
-                  </p>
-                </CardBody>
-              </Card>
+              <Chip color="danger" variant="flat" className="w-full">
+                <span className="text-sm" data-testid="error-message">{error}</span>
+              </Chip>
             )}
 
             <Button
               type="submit"
-              color="primary"
+              className="bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold shadow-lg hover:shadow-xl transition-all"
               isLoading={loading}
               isDisabled={!agreedToTerms}
               fullWidth
+              size="lg"
               data-testid="signup-button"
+              endContent={!loading && <ArrowRight className="w-4 h-4" />}
             >
               Create Account
             </Button>
-
-            <Divider className="my-2" />
-
-            <div className="text-center">
-              <p className="text-sm text-default-500" data-testid="login-prompt">
-                Already have an account?{" "}
-                <Link 
-                  href="/login" 
-                  className="text-primary hover:underline font-medium"
-                  data-testid="login-link"
-                >
-                  Sign in
-                </Link>
-              </p>
-            </div>
           </form>
+
+          <Divider className="my-4" />
+
+          <div className="text-center">
+            <p className="text-default-500 text-sm" data-testid="login-prompt">
+              Already have an account?{" "}
+              <Link 
+                href="/login" 
+                className="font-semibold text-primary hover:underline"
+                data-testid="login-link"
+              >
+                Sign in
+              </Link>
+            </p>
+          </div>
         </CardBody>
       </Card>
     </div>

@@ -10,6 +10,7 @@ type Config struct {
 	Testing TestingConfig          `yaml:"testing"`
 	Envs    map[string]EnvConfig   `yaml:"environments"`
 	Current string                 `yaml:"current_env"`
+	Email   map[string]interface{} `yaml:"email,omitempty"`
 	Meta    MetaConfig             `yaml:"meta"`
 }
 

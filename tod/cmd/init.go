@@ -8,11 +8,13 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/ciciliostudio/tod/internal/config"
 	"github.com/ciciliostudio/tod/internal/discovery"
 	"github.com/ciciliostudio/tod/internal/manifest"
 	"github.com/ciciliostudio/tod/internal/testing"
+	"github.com/ciciliostudio/tod/internal/ui"
 	"github.com/ciciliostudio/tod/internal/ui/components"
 	"github.com/spf13/cobra"
 )
@@ -173,9 +175,17 @@ func runInit(cmd *cobra.Command, args []string) {
 	printInitSummary(todConfig, results)
 
 	fmt.Println("\nTod initialization complete!")
+	fmt.Println("\nLaunching Tod Adventure Mode...")
 
-	// Suggest next steps based on auth configuration
-	printNextSteps(todConfig)
+	// Auto-launch TUI with Tod Adventure Mode
+	time.Sleep(1 * time.Second) // Brief pause to let user see the message
+	
+	// Launch TUI directly to Tod Adventure Mode
+	if err := launchTUIWithTodAdventure(todConfig); err != nil {
+		fmt.Printf("Error launching Tod: %v\n", err)
+		// Fall back to showing next steps
+		printNextSteps(todConfig)
+	}
 }
 
 // runInteractiveSetup is now replaced by the unified init wizard
@@ -386,6 +396,23 @@ func getStringOrDefault(value, defaultValue string) string {
 		return defaultValue
 	}
 	return value
+}
+
+// launchTUIWithFlowDiscovery launches the TUI directly into Chrome Test Discovery mode
+func launchTUIWithTodAdventure(todConfig *config.Config) error {
+	// Create the main model with Tod Adventure Mode as initial view
+	model := ui.NewModelWithInitialView(todConfig, ui.ViewChatAdventure)
+
+	// Create the program with some options
+	program := tea.NewProgram(
+		model,
+		tea.WithAltScreen(),       // Use alternate screen buffer
+		tea.WithMouseCellMotion(), // Enable mouse support
+	)
+
+	// Run the program
+	_, err := program.Run()
+	return err
 }
 
 func scanProjectActions(cwd string, todConfig *config.Config, analysisChoice *components.AnalysisChoice) (*discovery.ScanResults, error) {
