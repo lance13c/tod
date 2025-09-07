@@ -577,9 +577,10 @@ func extractMagicLinkFromContent(content string) string {
 	logging.Debug("[REGEX EXTRACT] Starting regex extraction on %d bytes", len(content))
 	
 	// First try: Look for URLs with auth-related keywords
-	// Updated regex to properly capture full URLs including query parameters
+	// Use a more precise regex that captures the full URL including all query parameters
+	// Match http(s):// followed by non-whitespace characters until we hit whitespace or HTML tags
 	authURLRegex := regexp.MustCompile(
-		`https?://[^\s<>"']+(?:verify|auth|login|confirm|activate|magic|token|signin|sign-in)[^\s<>"']*(?:\?[^\s<>"']+)?`,
+		`https?://[^\s<>]*(?:verify|auth|login|confirm|activate|magic|token|signin|sign-in)[^\s<>]*`,
 	)
 	matches := authURLRegex.FindAllString(content, -1)
 	logging.Debug("[REGEX EXTRACT] Auth regex found %d matches", len(matches))
@@ -591,15 +592,18 @@ func extractMagicLinkFromContent(content string) string {
 		}
 		// Clean up the URL (remove any trailing punctuation but preserve query params)
 		cleanURL := matches[0]
-		// Only trim punctuation if it's not part of a valid URL character
-		cleanURL = strings.TrimRight(cleanURL, ".,;:!?)")
-		// Remove any trailing brackets or quotes that might have been captured
-		cleanURL = strings.TrimRight(cleanURL, "]}")
+		// Remove common email formatting artifacts from the end
+		cleanURL = strings.TrimRight(cleanURL, ".,;:!?)]}\"'")
+		// But don't remove these if they're part of encoded parameters
+		if !strings.HasSuffix(cleanURL, "%2F") && !strings.HasSuffix(cleanURL, "%3D") {
+			cleanURL = strings.TrimRight(cleanURL, "/")
+		}
+		logging.Info("[REGEX EXTRACT] Extracted magic link: %s", cleanURL)
 		return cleanURL
 	}
 	
 	// Second try: Look for any HTTP/HTTPS URL that's not unsubscribe/privacy/terms
-	generalURLRegex := regexp.MustCompile(`https?://[^\s<>"']+`)
+	generalURLRegex := regexp.MustCompile(`https?://[^\s<>]+`)
 	matches = generalURLRegex.FindAllString(content, -1)
 	logging.Debug("[REGEX EXTRACT] General regex found %d URLs", len(matches))
 	
@@ -614,8 +618,12 @@ func extractMagicLinkFromContent(content string) string {
 		   !strings.Contains(lowerURL, "email-settings") &&
 		   !strings.Contains(lowerURL, "support") &&
 		   !strings.Contains(lowerURL, "help") {
-			// Clean up the URL
-			cleanURL := strings.TrimRight(url, ".,;:!?")
+			// Clean up the URL more carefully
+			cleanURL := strings.TrimRight(url, ".,;:!?)]}\"'")
+			// But don't remove these if they're part of encoded parameters
+			if !strings.HasSuffix(cleanURL, "%2F") && !strings.HasSuffix(cleanURL, "%3D") {
+				cleanURL = strings.TrimRight(cleanURL, "/")
+			}
 			logging.Debug("[REGEX EXTRACT] Selected URL: %s", cleanURL)
 			return cleanURL
 		}
