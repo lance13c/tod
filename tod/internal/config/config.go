@@ -11,6 +11,7 @@ type Config struct {
 	Envs    map[string]EnvConfig   `yaml:"environments"`
 	Current string                 `yaml:"current_env"`
 	Email   map[string]interface{} `yaml:"email,omitempty"`
+	Browser BrowserConfig          `yaml:"browser,omitempty"`
 	Meta    MetaConfig             `yaml:"meta"`
 }
 
@@ -79,6 +80,19 @@ type Cookie struct {
 	Path     string `yaml:"path,omitempty"`
 	Secure   bool   `yaml:"secure,omitempty"`
 	HTTPOnly bool   `yaml:"http_only,omitempty"`
+}
+
+// BrowserConfig holds browser-specific configuration
+type BrowserConfig struct {
+	Headless bool           `yaml:"headless"`
+	Location *LocationConfig `yaml:"location,omitempty"`
+}
+
+// LocationConfig holds geolocation settings for browser
+type LocationConfig struct {
+	Latitude  float64 `yaml:"latitude"`
+	Longitude float64 `yaml:"longitude"`
+	Accuracy  float64 `yaml:"accuracy,omitempty"`
 }
 
 // UsageConfig holds LLM usage tracking and cost data

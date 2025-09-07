@@ -508,7 +508,13 @@ func (v *NavigationView) connectToChrome() tea.Cmd {
 			return ChromeLaunchedMsg{}
 		}
 
-		manager, err := browser.GetGlobalChromeDPManager(v.configuredURL, true) // headless=true
+		// Get headless setting from config, default to true if not set
+		headless := true
+		if v.config != nil {
+			headless = v.config.Browser.Headless
+		}
+		logging.Info("Launching Chrome with headless=%v", headless)
+		manager, err := browser.GetGlobalChromeDPManager(v.configuredURL, headless)
 		if err != nil {
 			return ChromeErrorMsg{Error: err}
 		}
@@ -1646,7 +1652,12 @@ func (v *NavigationView) reconnectChrome() error {
 		v.isConnected = false
 	}
 
-	manager, err := browser.GetGlobalChromeDPManager(v.configuredURL, true)
+	// Get headless setting from config, default to true if not set
+	headless := true
+	if v.config != nil {
+		headless = v.config.Browser.Headless
+	}
+	manager, err := browser.GetGlobalChromeDPManager(v.configuredURL, headless)
 	if err != nil {
 		return err
 	}
