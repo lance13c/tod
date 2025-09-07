@@ -93,32 +93,14 @@ export default function SignUpPage() {
       const result = await signUp.magicLink({
         email: magicLinkEmail,
         name: magicLinkName,
-        callbackURL: "/dashboard",
       });
       
       if (result.data) {
         setMagicLinkSent(true);
       }
     } catch (err: unknown) {
-      // If callback URL is invalid, try without it and default to dashboard
-      if (err instanceof Error && err.message.includes("INVALID_CALLBACKURL")) {
-        try {
-          const result = await signUp.magicLink({
-            email: magicLinkEmail,
-            name: magicLinkName,
-          });
-          
-          if (result.data) {
-            setMagicLinkSent(true);
-          }
-        } catch (retryErr: unknown) {
-          setError(retryErr instanceof Error ? retryErr.message : "Failed to send magic link");
-          console.error(retryErr);
-        }
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to send magic link");
-        console.error(err);
-      }
+      setError(err instanceof Error ? err.message : "Failed to send magic link");
+      console.error(err);
     } finally {
       setMagicLinkLoading(false);
     }
