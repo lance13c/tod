@@ -11,7 +11,6 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/chromedp/chromedp"
 	"github.com/ciciliostudio/tod/internal/browser"
 	"github.com/ciciliostudio/tod/internal/config"
 	"github.com/ciciliostudio/tod/internal/llm"
@@ -648,9 +647,8 @@ func (v *NavigationView) generateSuggestions() {
 	if input == "" {
 		// Add common commands first
 		commands := []Command{
-			{Display: "go back", Description: "Navigate back in browser history"},
-			{Display: "go to home", Description: "Navigate to homepage"},
-			{Display: "refresh", Description: "Refresh current page"},
+			{Display: "go home", Description: "Restart browser and go to homepage"},
+			{Display: "connect", Description: "Connect to Chrome browser"},
 		}
 
 		for _, cmd := range commands {
@@ -1381,24 +1379,10 @@ func (v *NavigationView) matchCommand(input string) *Command {
 
 	commands := []Command{
 		{
-			Display:     "go to home",
-			Description: "Navigate to homepage",
+			Display:     "go home",
+			Description: "Restart browser and go to homepage",
 			Handler: func(v *NavigationView) error {
 				return v.goHome()
-			},
-		},
-		{
-			Display:     "go back",
-			Description: "Navigate back in browser history",
-			Handler: func(v *NavigationView) error {
-				return v.goBack()
-			},
-		},
-		{
-			Display:     "refresh",
-			Description: "Refresh current page",
-			Handler: func(v *NavigationView) error {
-				return v.refreshPage()
 			},
 		},
 		{
@@ -1412,13 +1396,11 @@ func (v *NavigationView) matchCommand(input string) *Command {
 
 	// Check for prefix matches with common command patterns
 	commandPatterns := map[string]string{
-		"go":       "go to home",
-		"back":     "go back",
-		"refresh":  "refresh",
-		"reload":   "refresh",
+		"go":       "go home",
 		"connect":  "connect",
-		"home":     "go to home",
-		"homepage": "go to home",
+		"home":     "go home",
+		"homepage": "go home",
+		"restart":  "go home",
 	}
 
 	// Direct pattern matching
@@ -1631,61 +1613,44 @@ func (v *NavigationView) navigateToURL(url string) error {
 	return v.chromeDPManager.Navigate(url)
 }
 
-func (v *NavigationView) goBack() error {
-	if v.chromeDPManager == nil {
-		return fmt.Errorf("browser not connected")
-	}
-	
-	// Use chromedp's NavigateBack action
-	ctx := v.chromeDPManager.GetContext()
-	if err := chromedp.Run(ctx, chromedp.NavigateBack()); err != nil {
-		return fmt.Errorf("failed to navigate back: %w", err)
-	}
-	
-	// Update current URL after navigation
-	url, _, err := v.chromeDPManager.GetPageInfo()
-	if err == nil {
-		v.currentURL = url
-		v.addHistory(fmt.Sprintf("⬅️ Navigated back to: %s", url))
-	}
-	
-	// Trigger page analysis for the new page
-	go v.analyzeCurrentPage()
-	
-	return nil
-}
-
-func (v *NavigationView) refreshPage() error {
-	if v.chromeDPManager == nil {
-		return fmt.Errorf("browser not connected")
-	}
-	
-	// Use chromedp's Reload action
-	ctx := v.chromeDPManager.GetContext()
-	if err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
-		return fmt.Errorf("failed to refresh page: %w", err)
-	}
-	
-	v.addHistory("🔄 Page refreshed")
-	
-	// Trigger page analysis after refresh
-	go v.analyzeCurrentPage()
-	
-	return nil
-}
 
 func (v *NavigationView) goHome() error {
-	if v.chromeDPManager == nil {
-		return fmt.Errorf("browser not connected")
+	v.addHistory("🔄 Restarting browser and going home...")
+	
+	// Close the current Chrome instance if it exists
+	if v.chromeDPManager != nil {
+		browser.CloseGlobalChromeDPManager()
+		v.chromeDPManager = nil
+		v.isConnected = false
 	}
 	
-	// Navigate to the configured base URL
+	// Wait a moment for Chrome to fully close
+	time.Sleep(500 * time.Millisecond)
+	
+	// Get headless setting from config
+	headless := true
+	if v.config != nil && v.config.Browser.Headless == false {
+		headless = false
+	}
+	
+	// Create a new Chrome instance
+	manager, err := browser.GetGlobalChromeDPManager(v.configuredURL, headless)
+	if err != nil {
+		v.addHistory(fmt.Sprintf("❌ Failed to restart Chrome: %v", err))
+		return fmt.Errorf("failed to restart Chrome: %w", err)
+	}
+	
+	v.chromeDPManager = manager
+	v.isConnected = true
+	v.currentURL = v.configuredURL
+	
+	// Navigate to home page
 	if err := v.chromeDPManager.Navigate(v.configuredURL); err != nil {
+		v.addHistory(fmt.Sprintf("❌ Failed to navigate home: %v", err))
 		return fmt.Errorf("failed to navigate home: %w", err)
 	}
 	
-	v.currentURL = v.configuredURL
-	v.addHistory(fmt.Sprintf("🏠 Navigated home to: %s", v.configuredURL))
+	v.addHistory(fmt.Sprintf("✅ Browser restarted and navigated to: %s", v.configuredURL))
 	
 	// Trigger page analysis for the home page
 	go v.analyzeCurrentPage()
