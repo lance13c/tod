@@ -62,27 +62,15 @@ func (l *Loader) Load() (*Config, error) {
 	return config, nil
 }
 
-// findConfigFile searches upward from the start directory for a config file
+// findConfigFile searches for a config file in the start directory only
 func (l *Loader) findConfigFile() (string, error) {
-	dir := l.startDir
-	
-	for {
-		// Check for local .tod/config.yaml
-		configPath := filepath.Join(dir, ConfigDirName, ConfigFileName)
-		if _, err := os.Stat(configPath); err == nil {
-			return configPath, nil
-		}
-		
-		// Move up one directory
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			// Reached filesystem root
-			break
-		}
-		dir = parent
+	// Check for local .tod/config.yaml in the specified directory only
+	configPath := filepath.Join(l.startDir, ConfigDirName, ConfigFileName)
+	if _, err := os.Stat(configPath); err == nil {
+		return configPath, nil
 	}
 	
-	// Try global config
+	// Try global config as fallback
 	homeDir, err := os.UserHomeDir()
 	if err == nil {
 		globalConfig := filepath.Join(homeDir, GlobalConfigDir, ConfigFileName)
@@ -91,7 +79,7 @@ func (l *Loader) findConfigFile() (string, error) {
 		}
 	}
 	
-	return "", fmt.Errorf("no config file found (searched upward from %s)", l.startDir)
+	return "", fmt.Errorf("no config file found in %s", l.startDir)
 }
 
 // loadFromFile loads configuration from a YAML file
