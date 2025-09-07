@@ -29,6 +29,7 @@ export function useGeolocation(options: UseGeolocationOptions = {}) {
   });
 
   const [watchId, setWatchId] = useState<number | null>(null);
+  const [isSupported, setIsSupported] = useState<boolean | null>(null);
 
   // Check permission status
   const checkPermission = useCallback(async () => {
@@ -60,7 +61,7 @@ export function useGeolocation(options: UseGeolocationOptions = {}) {
     });
   }, []);
 
-  // Error callback
+  // Error callback with retry logic
   const handleError = useCallback((error: GeolocationPositionError) => {
     let errorMessage = 'Unknown error occurred';
     
@@ -71,6 +72,26 @@ export function useGeolocation(options: UseGeolocationOptions = {}) {
         break;
       case error.POSITION_UNAVAILABLE:
         errorMessage = 'Location information unavailable. Please try again.';
+        // Try once more with lower accuracy
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            handleSuccess,
+            () => {
+              // Final failure
+              setState(prev => ({
+                ...prev,
+                error: errorMessage,
+                loading: false,
+              }));
+            },
+            {
+              enableHighAccuracy: false, // Try with lower accuracy
+              timeout: 10000,
+              maximumAge: 60000, // Accept older cached position
+            }
+          );
+          return;
+        }
         break;
       case error.TIMEOUT:
         errorMessage = 'Location request timed out. Please try again.';
@@ -82,7 +103,7 @@ export function useGeolocation(options: UseGeolocationOptions = {}) {
       error: errorMessage,
       loading: false,
     }));
-  }, []);
+  }, [handleSuccess]);
 
   // Get current position
   const getCurrentPosition = useCallback(() => {
@@ -99,8 +120,8 @@ export function useGeolocation(options: UseGeolocationOptions = {}) {
 
     const geoOptions: PositionOptions = {
       enableHighAccuracy: options.enableHighAccuracy ?? true,
-      timeout: options.timeout ?? 10000,
-      maximumAge: options.maximumAge ?? 0,
+      timeout: options.timeout ?? 30000, // Increased timeout to 30 seconds
+      maximumAge: options.maximumAge ?? 5000, // Allow cached position up to 5 seconds old
     };
 
     if (options.watchPosition) {
@@ -133,8 +154,9 @@ export function useGeolocation(options: UseGeolocationOptions = {}) {
     getCurrentPosition();
   }, [checkPermission, getCurrentPosition]);
 
-  // Check permission on mount
+  // Check permission and browser support on mount
   useEffect(() => {
+    setIsSupported(typeof navigator !== 'undefined' && 'geolocation' in navigator);
     checkPermission();
   }, [checkPermission]);
 
@@ -150,6 +172,6 @@ export function useGeolocation(options: UseGeolocationOptions = {}) {
     requestLocation,
     getCurrentPosition,
     stopWatching,
-    isSupported: typeof navigator !== 'undefined' && 'geolocation' in navigator,
+    isSupported,
   };
 }

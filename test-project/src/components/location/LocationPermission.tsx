@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { Button, Card, CardBody, CardHeader } from '@nextui-org/react';
 import { MapPin, Shield, AlertCircle } from 'lucide-react';
 import { useGeolocation } from '@/hooks/useGeolocation';
@@ -26,11 +27,27 @@ export function LocationPermission({
   } = useGeolocation();
 
   // Call callback when location is obtained
-  if (latitude && longitude) {
-    onLocationGranted(latitude, longitude);
+  React.useEffect(() => {
+    if (latitude && longitude) {
+      onLocationGranted(latitude, longitude);
+    }
+  }, [latitude, longitude, onLocationGranted]);
+
+  // Wait for client-side hydration to check browser support
+  if (isSupported === null) {
+    return (
+      <Card className="max-w-md mx-auto">
+        <CardBody className="text-center py-8">
+          <div className="animate-pulse">
+            <MapPin className="w-16 h-16 text-primary mx-auto mb-4" />
+          </div>
+          <h3 className="text-xl font-semibold mb-2">Checking Browser Support...</h3>
+        </CardBody>
+      </Card>
+    );
   }
 
-  if (!isSupported) {
+  if (isSupported === false) {
     return (
       <Card className="max-w-md mx-auto">
         <CardBody className="text-center py-8">
@@ -66,19 +83,49 @@ export function LocationPermission({
   }
 
   if (error) {
+    // Check if it's a temporary error we can retry
+    const isRetryableError = error.includes('unavailable') || error.includes('timed out');
+    
     return (
       <Card className="max-w-md mx-auto">
         <CardBody className="text-center py-8">
           <AlertCircle className="w-16 h-16 text-warning mx-auto mb-4" />
           <h3 className="text-xl font-semibold mb-2">Location Error</h3>
-          <p className="text-default-500 mb-4">{error}</p>
-          <Button 
-            color="primary" 
-            onPress={requestLocation}
-            isLoading={loading}
-          >
-            Try Again
-          </Button>
+          <p className="text-default-500 mb-4">
+            {isRetryableError 
+              ? "Having trouble getting your location. This can happen indoors or in areas with poor signal."
+              : error}
+          </p>
+          
+          <div className="space-y-3">
+            <Button 
+              color="primary" 
+              onPress={requestLocation}
+              isLoading={loading}
+              className="w-full"
+            >
+              Try Again
+            </Button>
+            
+            {isRetryableError && (
+              <Button
+                variant="flat"
+                onPress={() => {
+                  // Use fallback coordinates for testing
+                  onLocationGranted(36.14879834580897, -86.80765485270973);
+                }}
+                className="w-full"
+              >
+                Continue Without Precise Location
+              </Button>
+            )}
+          </div>
+          
+          {isRetryableError && (
+            <p className="text-xs text-default-400 mt-4">
+              Tip: Try moving closer to a window or going outside for better GPS signal
+            </p>
+          )}
         </CardBody>
       </Card>
     );

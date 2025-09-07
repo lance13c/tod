@@ -4,28 +4,41 @@ import path from 'path';
 
 let db: Database | null = null;
 let isInitialized = false;
+let initializationPromise: Promise<Database> | null = null;
 
 /**
  * Initialize DuckDB connection and load spatial extension
  */
 export async function initializeDuckDB(): Promise<Database> {
+  // If already initialized, return existing connection
   if (db && isInitialized) {
     return db;
   }
 
-  try {
-    // Create a file-based DuckDB instance for persistence
-    const dbPath = path.join(process.cwd(), '.duckdb', 'buildings.db');
-    
-    // Ensure directory exists
-    const dbDir = path.dirname(dbPath);
-    if (!fs.existsSync(dbDir)) {
-      fs.mkdirSync(dbDir, { recursive: true });
-    }
-    
-    // IMPORTANT: Load spatial extension BEFORE opening the database
-    // This ensures the extension is available when replaying WAL files
-    db = await Database.create(dbPath);
+  // If initialization is in progress, wait for it
+  if (initializationPromise) {
+    return initializationPromise;
+  }
+
+  // Start initialization
+  initializationPromise = (async () => {
+    try {
+      // Create a file-based DuckDB instance for persistence
+      const dbPath = path.join(process.cwd(), '.duckdb', 'buildings.db');
+      
+      // Ensure directory exists
+      const dbDir = path.dirname(dbPath);
+      if (!fs.existsSync(dbDir)) {
+        fs.mkdirSync(dbDir, { recursive: true });
+      }
+      
+      // IMPORTANT: Load spatial extension BEFORE opening the database
+      // This ensures the extension is available when replaying WAL files
+      // Use read_only mode for queries to avoid lock conflicts
+      const isReadOnly = process.env.DUCKDB_READ_ONLY === 'true';
+      db = await Database.create(dbPath, { 
+        access_mode: isReadOnly ? 'read_only' : 'read_write'
+      });
     
     console.log('Initializing DuckDB with spatial extension...');
     
@@ -76,11 +89,16 @@ export async function initializeDuckDB(): Promise<Database> {
     isInitialized = true;
     console.log('DuckDB initialized successfully with spatial extension');
     
-    return db;
-  } catch (error) {
-    console.error('Failed to initialize DuckDB:', error);
-    throw error;
-  }
+      return db;
+    } catch (error) {
+      // Reset on error
+      initializationPromise = null;
+      console.error('Failed to initialize DuckDB:', error);
+      throw error;
+    }
+  })();
+
+  return initializationPromise;
 }
 
 /**
@@ -106,15 +124,13 @@ async function loadNashvilleBuildingsDataFast() {
     const totalFeatures = geojson.features?.length || 0;
     console.log(`Processing ${totalFeatures} features...`);
     
-    // For startup, load a subset for performance
-    // Full dataset can be loaded via the API endpoint if needed
-    const startupLimit = 50000; // Load 50k buildings on startup
-    const maxBuildings = Math.min(startupLimit, totalFeatures);
+    // Load ALL buildings on startup for complete coverage
+    const maxBuildings = totalFeatures;
     
-    console.log(`Loading ${maxBuildings} buildings on startup (${Math.round(maxBuildings/totalFeatures*100)}% of dataset)`);
+    console.log(`Loading ALL ${maxBuildings} buildings into DuckDB...`);
     
     let insertedCount = 0;
-    const batchSize = 100;
+    const batchSize = 500; // Increased batch size for faster loading
     const values: any[] = [];
     
     for (let j = 0; j < maxBuildings; j++) {
@@ -168,11 +184,7 @@ async function loadNashvilleBuildingsDataFast() {
       insertedCount += values.length;
     }
     
-    console.log(`Fast load complete: ${insertedCount} buildings loaded`);
-    
-    if (totalFeatures > startupLimit) {
-      console.log(`Note: ${totalFeatures - maxBuildings} additional buildings available. Use /api/buildings/load to load more.`);
-    }
+    console.log(`✅ Successfully loaded ${insertedCount} buildings into DuckDB`);
   } catch (error) {
     console.error('Fast load failed:', error);
     // Don't throw - allow app to continue with empty database
@@ -367,4 +379,11 @@ export async function closeDuckDB() {
 export async function spatialQuery<T = any>(query: string, params: any[] = []): Promise<T[]> {
   const database = await getDuckDB();
   return database.all(query, ...params) as Promise<T[]>;
+}
+
+// Initialize DuckDB on module load to ensure data is ready
+if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'test') {
+  initializeDuckDB().catch(err => {
+    console.error('Failed to initialize DuckDB on startup:', err);
+  });
 }

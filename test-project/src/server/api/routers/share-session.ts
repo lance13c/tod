@@ -9,6 +9,7 @@ import {
   isPointInBoundingBox
 } from '@/lib/geo/building-detector';
 import { findNearestBuilding } from '@/lib/geo/duckdb-building-utils';
+import { isWithinCoverage, getSampleLocation } from '@/lib/geo/coverage';
 import crypto from 'crypto';
 
 export const shareSessionRouter = createTRPCRouter({
@@ -20,6 +21,26 @@ export const shareSessionRouter = createTRPCRouter({
     }))
     .query(async ({ ctx, input }) => {
       try {
+        // First check if location is within dataset coverage
+        const coverage = await isWithinCoverage(input.latitude, input.longitude);
+        
+        if (!coverage.isWithin) {
+          const sampleLocation = await getSampleLocation();
+          return {
+            building: null,
+            activeSession: null,
+            coverage: {
+              isWithinDataset: false,
+              message: coverage.suggestion,
+              sampleLocation: sampleLocation ? {
+                latitude: sampleLocation.latitude,
+                longitude: sampleLocation.longitude,
+                description: 'Use these coordinates to test the system'
+              } : null
+            }
+          };
+        }
+        
         // Use DuckDB to find the nearest building
         const building = await findNearestBuilding(
           input.latitude,
@@ -83,6 +104,10 @@ export const shareSessionRouter = createTRPCRouter({
               participantCount: existingSession._count.participants,
               expiresAt: existingSession.expiresAt,
             } : null,
+            coverage: {
+              isWithinDataset: true,
+              message: 'Location is within dataset coverage'
+            }
           };
         }
 
@@ -96,12 +121,21 @@ export const shareSessionRouter = createTRPCRouter({
             geometry: building.geometry,
           } : null,
           existingSession: null,
+          coverage: {
+            isWithinDataset: true,
+            message: building ? 'Building found nearby' : 'No building found at this location'
+          }
         };
       } catch (error) {
         console.error('Error finding building at location:', error);
         return {
           building: null,
           existingSession: null,
+          coverage: {
+            isWithinDataset: false,
+            message: 'Error checking location',
+            error: error instanceof Error ? error.message : 'Unknown error'
+          }
         };
       }
     }),

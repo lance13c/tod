@@ -4,6 +4,9 @@ import "./globals.css";
 import { TRPCProvider } from "@/providers/trpc-provider";
 import { Providers } from "@/providers/nextui-provider";
 
+// Initialize database on app startup
+import "@/lib/db/startup";
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],

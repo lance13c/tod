@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '250mb',
+    },
+  },
   webpack: (config, { isServer }) => {
     if (isServer) {
       // Externalize native modules and their optional dependencies

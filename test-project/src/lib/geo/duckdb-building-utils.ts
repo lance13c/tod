@@ -1,7 +1,12 @@
 async function spatialQuery<T = any>(query: string, params: any[] = []): Promise<T[]> {
-  const { spatialQuery: executeQuery } = await import('@/lib/db/duckdb');
+  // Use the read-only query connection to avoid lock conflicts
+  const { spatialQuery: executeQuery } = await import('@/lib/db/duckdb-query');
   return executeQuery<T>(query, params);
 }
+
+// Import coverage checking and geocoding
+import { isWithinCoverage } from './coverage';
+import { getBuildingAddress } from './opencage';
 
 export interface BuildingInfo {
   id: string;
@@ -19,9 +24,17 @@ export interface BuildingInfo {
 export async function findNearestBuilding(
   latitude: number,
   longitude: number,
-  bufferMeters: number = 40
+  bufferMeters: number = 100
 ): Promise<BuildingInfo | null> {
   console.log(`Finding nearest building for location: ${latitude}, ${longitude} with buffer: ${bufferMeters}m`);
+  
+  // Check if location is within dataset coverage
+  const coverage = await isWithinCoverage(latitude, longitude);
+  if (!coverage.isWithin) {
+    console.warn(`⚠️ Location outside dataset coverage: ${coverage.suggestion}`);
+    console.log(`ℹ️ Try a location within the dataset, e.g., lat: ${coverage.bounds?.centerLat}, lon: ${coverage.bounds?.centerLon}`);
+    return null;
+  }
   
   try {
     // Create a point geometry for the user's location
@@ -34,7 +47,7 @@ export async function findNearestBuilding(
         b.id,
         b.name,
         b.address,
-        ST_Distance_Sphere(b.geometry, ul.point) as distance,
+        ST_Distance_Sphere(ST_Point(b.centroid_lon, b.centroid_lat), ul.point) as distance,
         ST_Contains(b.geometry, ul.point) as is_inside,
         b.centroid_lon,
         b.centroid_lat,
@@ -42,18 +55,20 @@ export async function findNearestBuilding(
       FROM buildings b, user_location ul
       WHERE 
         -- Use bounding box for initial filtering (much faster)
-        b.bbox_minx <= ? + (? / 111320.0) AND 
-        b.bbox_maxx >= ? - (? / 111320.0) AND
-        b.bbox_miny <= ? + (? / 111320.0) AND 
-        b.bbox_maxy >= ? - (? / 111320.0)
-        -- Then check actual distance
-        AND ST_Distance_Sphere(b.geometry, ul.point) <= ?
+        b.bbox_minx <= ? AND 
+        b.bbox_maxx >= ? AND
+        b.bbox_miny <= ? AND 
+        b.bbox_maxy >= ?
+        -- Then check actual distance using centroid
+        AND ST_Distance_Sphere(ST_Point(b.centroid_lon, b.centroid_lat), ul.point) <= ?
       ORDER BY distance
       LIMIT 1
     `;
 
     // Convert buffer meters to approximate degrees (1 degree ≈ 111,320 meters at equator)
-    const bufferDegrees = bufferMeters / 111320.0;
+    // Adjust for latitude (longitude degrees get smaller as you move away from equator)
+    const latBufferDegrees = bufferMeters / 111320.0;
+    const lonBufferDegrees = bufferMeters / (111320.0 * Math.cos(latitude * Math.PI / 180));
     
     const results = await spatialQuery<{
       id: string;
@@ -67,10 +82,10 @@ export async function findNearestBuilding(
     }>(query, [
       longitude, 
       latitude,
-      longitude, bufferDegrees,
-      longitude, bufferDegrees,
-      latitude, bufferDegrees,
-      latitude, bufferDegrees,
+      longitude + lonBufferDegrees,  // bbox_minx <= longitude + buffer (search to the right)
+      longitude - lonBufferDegrees,  // bbox_maxx >= longitude - buffer (search to the left)
+      latitude + latBufferDegrees,   // bbox_miny <= latitude + buffer (search above)
+      latitude - latBufferDegrees,   // bbox_maxy >= latitude - buffer (search below)
       bufferMeters
     ]);
 
@@ -83,10 +98,24 @@ export async function findNearestBuilding(
 
     const building = results[0];
     console.log(`Found building: ID=${building.id}, distance=${Math.round(building.distance)}m, isInside=${building.is_inside}`);
+    
+    // Get or update the building address using OpenCage
+    const address = await getBuildingAddress(
+      building.id,
+      building.centroid_lat,
+      building.centroid_lon,
+      building.address
+    );
+    
+    // Use address as name if name is null or "unknown"
+    const name = (building.name && building.name !== 'unknown' && building.name !== 'Unknown Building') 
+      ? building.name 
+      : address;
+    
     return {
       id: building.id,
-      name: building.name,
-      address: building.address,
+      name: name,
+      address: address,
       distance: Math.round(building.distance),
       isInside: building.is_inside,
       centroid: [building.centroid_lon, building.centroid_lat],
@@ -104,7 +133,7 @@ export async function findNearestBuilding(
 export async function isLocationInBuilding(
   latitude: number,
   longitude: number,
-  bufferMeters: number = 40
+  bufferMeters: number = 100
 ): Promise<{ inBuilding: boolean; building?: BuildingInfo }> {
   const building = await findNearestBuilding(latitude, longitude, bufferMeters);
   
@@ -135,7 +164,7 @@ export async function getBuildingsInRadius(
         b.id,
         b.name,
         b.address,
-        ST_Distance_Sphere(b.geometry, ul.point) as distance,
+        ST_Distance_Sphere(ST_Point(b.centroid_lon, b.centroid_lat), ul.point) as distance,
         ST_Contains(b.geometry, ul.point) as is_inside,
         b.centroid_lon,
         b.centroid_lat,
@@ -143,17 +172,20 @@ export async function getBuildingsInRadius(
       FROM buildings b, user_location ul
       WHERE 
         -- Use bounding box for initial filtering
-        b.bbox_minx <= ? + (? / 111320.0) AND 
-        b.bbox_maxx >= ? - (? / 111320.0) AND
-        b.bbox_miny <= ? + (? / 111320.0) AND 
-        b.bbox_maxy >= ? - (? / 111320.0)
-        -- Then check actual distance
-        AND ST_Distance_Sphere(b.geometry, ul.point) <= ?
+        b.bbox_minx <= ? AND 
+        b.bbox_maxx >= ? AND
+        b.bbox_miny <= ? AND 
+        b.bbox_maxy >= ?
+        -- Then check actual distance using centroid
+        AND ST_Distance_Sphere(ST_Point(b.centroid_lon, b.centroid_lat), ul.point) <= ?
       ORDER BY distance
       LIMIT 100
     `;
 
-    const radiusDegrees = radiusMeters / 111320.0;
+    // Convert radius meters to approximate degrees
+    // Adjust for latitude (longitude degrees get smaller as you move away from equator)
+    const latRadiusDegrees = radiusMeters / 111320.0;
+    const lonRadiusDegrees = radiusMeters / (111320.0 * Math.cos(latitude * Math.PI / 180));
     
     const results = await spatialQuery<{
       id: string;
@@ -167,22 +199,42 @@ export async function getBuildingsInRadius(
     }>(query, [
       longitude,
       latitude,
-      longitude, radiusDegrees,
-      longitude, radiusDegrees,
-      latitude, radiusDegrees,
-      latitude, radiusDegrees,
+      longitude + lonRadiusDegrees,  // bbox_minx <= longitude + radius (search to the right)
+      longitude - lonRadiusDegrees,  // bbox_maxx >= longitude - radius (search to the left)
+      latitude + latRadiusDegrees,   // bbox_miny <= latitude + radius (search above)
+      latitude - latRadiusDegrees,   // bbox_maxy >= latitude - radius (search below)
       radiusMeters
     ]);
 
-    return results.map(building => ({
-      id: building.id,
-      name: building.name,
-      address: building.address,
-      distance: Math.round(building.distance),
-      isInside: building.is_inside,
-      centroid: [building.centroid_lon, building.centroid_lat],
-      geometry: JSON.parse(building.geometry_json)
-    }));
+    // Process buildings with address lookup
+    const processedBuildings = await Promise.all(
+      results.map(async (building) => {
+        // Get or update the building address using OpenCage
+        const address = await getBuildingAddress(
+          building.id,
+          building.centroid_lat,
+          building.centroid_lon,
+          building.address
+        );
+        
+        // Use address as name if name is null or "unknown"
+        const name = (building.name && building.name !== 'unknown' && building.name !== 'Unknown Building') 
+          ? building.name 
+          : address;
+        
+        return {
+          id: building.id,
+          name: name,
+          address: address,
+          distance: Math.round(building.distance),
+          isInside: building.is_inside,
+          centroid: [building.centroid_lon, building.centroid_lat],
+          geometry: JSON.parse(building.geometry_json)
+        };
+      })
+    );
+    
+    return processedBuildings;
   } catch (error) {
     console.error('Error getting buildings in radius with DuckDB:', error);
     return [];
@@ -221,10 +273,24 @@ export async function getBuildingById(buildingId: string): Promise<BuildingInfo 
     }
 
     const building = results[0];
+    
+    // Get or update the building address using OpenCage
+    const address = await getBuildingAddress(
+      building.id,
+      building.centroid_lat,
+      building.centroid_lon,
+      building.address
+    );
+    
+    // Use address as name if name is null or "unknown"
+    const name = (building.name && building.name !== 'unknown' && building.name !== 'Unknown Building') 
+      ? building.name 
+      : address;
+    
     return {
       id: building.id,
-      name: building.name,
-      address: building.address,
+      name: name,
+      address: address,
       distance: 0,
       isInside: false,
       centroid: [building.centroid_lon, building.centroid_lat],

@@ -17,7 +17,8 @@ import {
   ModalHeader,
   ModalBody,
   ModalFooter,
-  useDisclosure
+  useDisclosure,
+  Spinner
 } from '@nextui-org/react';
 import { 
   Users, 
@@ -75,10 +76,11 @@ export default function SessionPage() {
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [nickname, setNickname] = useState('');
   const [copied, setCopied] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
 
   // Fetch session data
-  const { data: session, refetch } = api.shareSession.getSession.useQuery(
+  const { data: session, refetch, isLoading: sessionLoading } = api.shareSession.getSession.useQuery(
     { code: code.toUpperCase() },
     { 
       enabled: !!code,
@@ -87,7 +89,47 @@ export default function SessionPage() {
   );
 
   // Join session mutation
-  const joinSession = api.shareSession.joinSession.useMutation();
+  const joinSession = api.shareSession.joinSession.useMutation({
+    onError: (error) => {
+      // If already in session, just mark as joined (not really an error)
+      if (error.message.includes('already in this session')) {
+        console.log('User already in session, rejoining...');
+        // Check localStorage for existing participant ID
+        if (session) {
+          const storageKey = `session_participant_${session.id}`;
+          const storedParticipantId = localStorage.getItem(storageKey);
+          
+          if (storedParticipantId) {
+            const existingParticipant = session.participants?.find(
+              p => p.id === storedParticipantId
+            );
+            
+            if (existingParticipant) {
+              console.log('Rejoining with existing participant ID');
+              setHasJoined(true);
+              setParticipantId(existingParticipant.id);
+              return;
+            }
+          }
+          
+          // Just mark as joined even if we can't find the exact participant
+          // The UI will still work and show them as a participant
+          console.log('Marking user as joined (existing participant)');
+          setHasJoined(true);
+          // Try to find any guest participant that might be us
+          const possibleParticipant = session.participants?.find(p => p.guest);
+          if (possibleParticipant) {
+            setParticipantId(possibleParticipant.id);
+            localStorage.setItem(storageKey, possibleParticipant.id);
+          }
+        }
+      } else {
+        // Only show alert for actual errors
+        console.error('Failed to join session:', error);
+        alert(`Failed to join session: ${error.message}`);
+      }
+    }
+  });
 
   // Handle successful join
   useEffect(() => {
@@ -95,9 +137,13 @@ export default function SessionPage() {
       setHasJoined(true);
       setParticipantId(joinSession.data.participant.id);
       setPeerId(joinSession.data.peerId);
+      // Store participant ID for auto-rejoin
+      if (session) {
+        localStorage.setItem(`session_participant_${session.id}`, joinSession.data.participant.id);
+      }
       onClose();
     }
-  }, [joinSession.isSuccess, joinSession.data, onClose]);
+  }, [joinSession.isSuccess, joinSession.data, session, onClose]);
 
   // Leave session mutation
   const leaveSession = api.shareSession.leaveSession.useMutation();
@@ -112,6 +158,27 @@ export default function SessionPage() {
   // Ping mutation to maintain connection
   const ping = api.shareSession.ping.useMutation();
 
+  // Check if already a participant when session loads
+  useEffect(() => {
+    if (session && !hasJoined) {
+      // Check localStorage for existing participant ID for this session
+      const storageKey = `session_participant_${session.id}`;
+      const storedParticipantId = localStorage.getItem(storageKey);
+      
+      if (storedParticipantId) {
+        const existingParticipant = session.participants?.find(
+          p => p.id === storedParticipantId
+        );
+        
+        if (existingParticipant) {
+          console.log('Found existing participant, rejoining automatically');
+          setHasJoined(true);
+          setParticipantId(existingParticipant.id);
+        }
+      }
+    }
+  }, [session, hasJoined]);
+
   // Send ping every 30 seconds to maintain connection
   useEffect(() => {
     if (!participantId) return;
@@ -125,25 +192,29 @@ export default function SessionPage() {
 
   const handleLocationGranted = (latitude: number, longitude: number) => {
     setLocation({ latitude, longitude });
-    if (nickname) {
-      handleJoinSession(latitude, longitude);
-    } else {
-      onOpen(); // Show nickname modal
-    }
+    // The UI will automatically show the nickname input screen
+    // when location is set and hasJoined is false
   };
 
   const handleJoinSession = (lat?: number, lon?: number) => {
     const finalLocation = lat && lon ? { latitude: lat, longitude: lon } : location;
-    if (!finalLocation) return;
+    if (!finalLocation) {
+      console.error('No location available for joining session');
+      alert('Location is required to join the session. Please enable location access.');
+      return;
+    }
 
-    joinSession.mutate({
+    const payload = {
       code: code.toUpperCase(),
       latitude: finalLocation.latitude,
       longitude: finalLocation.longitude,
       nickname: nickname || undefined,
       isGuest: true,
       guestFingerprint: getDeviceFingerprint(),
-    });
+    };
+    
+    console.log('Attempting to join session...');
+    joinSession.mutate(payload);
   };
 
   const handleLeaveSession = () => {
@@ -174,40 +245,100 @@ export default function SessionPage() {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      // Check file size (max 250MB)
+      if (file.size > 250 * 1024 * 1024) {
+        alert('File size must be less than 250MB');
+        return;
+      }
+      
+      if (!session || !participantId) {
+        console.error('Cannot upload: no session or participant ID');
+        alert('Please join the session first');
+        return;
+      }
+      
+      console.log('Uploading file:', file.name, formatFileSize(file.size));
+      
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('sessionId', session.id);
+        formData.append('participantId', participantId);
+        
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Upload failed');
+        }
+        
+        const result = await response.json();
+        console.log('File uploaded successfully:', result);
+        
+        // Refresh session data to show new file
+        refetch();
+        
+        // Reset the input
+        event.target.value = '';
+      } catch (error) {
+        console.error('Upload error:', error);
+        alert(`Failed to upload file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        event.target.value = '';
+      }
+    }
+  };
+
+  // Check if session has expired
+  const isExpired = session ? new Date(session.expiresAt) < new Date() : false;
+
+  // Redirect to create new session if session not found
+  useEffect(() => {
+    if (!session && !sessionLoading) {
+      router.push('/share');
+    }
+  }, [session, sessionLoading, router]);
+  
+  // Redirect to create new session if expired
+  useEffect(() => {
+    if (isExpired) {
+      router.push('/share');
+    }
+  }, [isExpired, router]);
+
   if (!session) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-primary-50 to-secondary-50 dark:from-gray-900 dark:to-gray-800 p-4 flex items-center justify-center">
         <Card className="max-w-md w-full">
-          <CardBody className="text-center py-8">
-            <AlertCircle className="w-16 h-16 text-warning mx-auto mb-4" />
-            <h3 className="text-xl font-semibold mb-2">Session Not Found</h3>
+          <CardBody className="text-center py-12">
+            <Share2 className="w-16 h-16 text-primary mx-auto mb-4 animate-pulse" />
+            <h3 className="text-xl font-semibold mb-2">Redirecting...</h3>
             <p className="text-default-500 mb-4">
-              The session code "{code}" doesn't exist or has expired.
+              Setting up a share session for you
             </p>
-            <Button color="primary" onPress={() => router.push('/share')}>
-              Create New Session
-            </Button>
+            <Spinner size="lg" color="primary" />
           </CardBody>
         </Card>
       </div>
     );
   }
 
-  // Check if session has expired
-  const isExpired = new Date(session.expiresAt) < new Date();
   if (isExpired) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-primary-50 to-secondary-50 dark:from-gray-900 dark:to-gray-800 p-4 flex items-center justify-center">
         <Card className="max-w-md w-full">
-          <CardBody className="text-center py-8">
-            <Clock className="w-16 h-16 text-default-400 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold mb-2">Session Expired</h3>
+          <CardBody className="text-center py-12">
+            <Share2 className="w-16 h-16 text-primary mx-auto mb-4 animate-pulse" />
+            <h3 className="text-xl font-semibold mb-2">Creating New Session...</h3>
             <p className="text-default-500 mb-4">
-              This session has ended. Create a new one to continue sharing.
+              The previous session has expired
             </p>
-            <Button color="primary" onPress={() => router.push('/share')}>
-              Create New Session
-            </Button>
+            <Spinner size="lg" color="primary" />
           </CardBody>
         </Card>
       </div>
@@ -298,7 +429,7 @@ export default function SessionPage() {
                   size="sm"
                   variant="flat"
                 >
-                  {session.participants.length}/{session.maxParticipants}
+                  {session.participants.length}
                 </Chip>
                 <Chip
                   startContent={<Clock className="w-3 h-3" />}
@@ -307,13 +438,6 @@ export default function SessionPage() {
                   color={hoursRemaining < 1 ? 'warning' : 'default'}
                 >
                   {hoursRemaining}h {minutesRemaining}m remaining
-                </Chip>
-                <Chip
-                  startContent={<MapPin className="w-3 h-3" />}
-                  size="sm"
-                  variant="flat"
-                >
-                  {session.geoLockRadius}m radius
                 </Chip>
               </div>
             </div>
@@ -383,9 +507,21 @@ export default function SessionPage() {
                 color="primary"
                 size="sm"
                 startContent={<Upload className="w-4 h-4" />}
+                onPress={() => {
+                  // Trigger the hidden file input
+                  const fileInput = document.getElementById('file-upload-input');
+                  fileInput?.click();
+                }}
               >
                 Upload Files
               </Button>
+              <input
+                id="file-upload-input"
+                type="file"
+                className="hidden"
+                onChange={handleFileSelect}
+                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.md,.markdown,.json,.xml,.csv,.zip,.tar,.gz,.js,.ts,.jsx,.tsx,.css,.scss,.html,.py,.java,.cpp,.c,.h,.hpp,.rs,.go,.rb,.php,.swift,.kt,.dart,.yaml,.yml,.toml,.ini,.conf,.sh,.bash,.zsh,.fish,.ps1,.bat,.cmd"
+              />
             </CardHeader>
             <CardBody>
               {session.documents.length === 0 ? (

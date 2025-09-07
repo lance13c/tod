@@ -51,4 +51,5 @@ next-env.d.ts
 
 # uploads
 /public/uploads/
+/uploads/
 .duckdb/
