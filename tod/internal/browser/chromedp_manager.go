@@ -90,14 +90,14 @@ func NewChromeDPManager(baseURL string, headless bool) (*ChromeDPManager, error)
 	)
 	
 	// If not headless, disable it (default is headless)
-	if !headless {
-		logging.Info("Chrome will run in visible mode (headless=false)")
-		opts = append(opts, 
-			chromedp.Flag("headless", false),
-		)
-	} else {
-		logging.Info("Chrome will run in headless mode (headless=true)")
-	}
+	// if !headless {
+	// 	logging.Info("Chrome will run in visible mode (headless=false)")
+	// 	opts = append(opts, 
+	// 		chromedp.Flag("headless", false),
+	// 	)
+	// } else {
+	// 	logging.Info("Chrome will run in headless mode (headless=true)")
+	// }
 	
 	// Add our custom options
 	opts = append(opts,
