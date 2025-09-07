@@ -13,12 +13,14 @@ import (
 
 // MonitorService manages background email monitoring
 type MonitorService struct {
-	monitor    *SMTPMonitor
-	stopChan   chan struct{}
-	wsURL      string
-	mu         sync.Mutex
-	isRunning  bool
-	projectDir string
+	monitor      *IMAPMonitor
+	stopChan     chan struct{}
+	wsURL        string
+	mu           sync.Mutex
+	isRunning    bool
+	projectDir   string
+	onMagicLink  func(string) error
+	linkDetected chan string
 }
 
 var (
@@ -31,10 +33,23 @@ var (
 func GetMonitorService(projectDir string) *MonitorService {
 	globalMonitorOnce.Do(func() {
 		globalMonitor = &MonitorService{
-			projectDir: projectDir,
+			projectDir:   projectDir,
+			linkDetected: make(chan string, 10),
 		}
 	})
 	return globalMonitor
+}
+
+// SetOnMagicLink sets a global callback for when magic links are detected
+func (m *MonitorService) SetOnMagicLink(callback func(string) error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onMagicLink = callback
+}
+
+// GetLinkDetectedChannel returns the channel for detected links
+func (m *MonitorService) GetLinkDetectedChannel() <-chan string {
+	return m.linkDetected
 }
 
 // StartBackgroundMonitoring starts email monitoring in the background
@@ -53,12 +68,12 @@ func (m *MonitorService) StartBackgroundMonitoring() error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	
-	// Load SMTP config from file
-	smtpConfig := LoadSMTPConfigFromFile(configData)
+	// Load IMAP config from file
+	imapConfig := LoadIMAPConfigFromFile(configData)
 	
 	// Validate configuration
-	if smtpConfig.Username == "" || smtpConfig.Password == "" {
-		return fmt.Errorf("SMTP credentials not configured in .tod/config.yaml")
+	if imapConfig.Username == "" || imapConfig.Password == "" {
+		return fmt.Errorf("Email (IMAP) credentials not configured in .tod/config.yaml")
 	}
 	
 	// Try to connect to Chrome
@@ -71,28 +86,45 @@ func (m *MonitorService) StartBackgroundMonitoring() error {
 		log.Printf("Connected to Chrome DevTools")
 	}
 	
-	// Create SMTP monitor
-	monitor, err := NewSMTPMonitor(smtpConfig)
+	// Create IMAP monitor
+	monitor, err := NewIMAPMonitor(imapConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create email monitor: %w", err)
 	}
 	
 	// Start monitoring in background
 	stopChan, err := monitor.StartMonitoringBackground(func(magicLink string) error {
-		log.Printf("Magic link detected: %s", magicLink)
+		log.Printf("[MONITOR SERVICE] 🎆 Magic link detected: %s", magicLink)
+		
+		// Send to channel if anyone is listening
+		select {
+		case m.linkDetected <- magicLink:
+		default:
+			// Channel full or no listeners
+		}
+		
+		// Call global callback if set
+		if m.onMagicLink != nil {
+			if err := m.onMagicLink(magicLink); err != nil {
+				log.Printf("[MONITOR SERVICE] Callback error: %v", err)
+			}
+		}
 		
 		// Navigate Chrome if available
 		if m.wsURL != "" {
+			log.Printf("[MONITOR SERVICE] Auto-navigating Chrome to magic link...")
 			if err := browser.NavigateToURLDirect(m.wsURL, magicLink); err != nil {
-				log.Printf("Failed to navigate Chrome: %v", err)
+				log.Printf("[MONITOR SERVICE] Failed to navigate Chrome: %v", err)
 				// Try to reconnect to Chrome
 				if newWSURL, err := browser.GetChromeWebSocketURL("localhost", "9222"); err == nil {
 					m.wsURL = newWSURL
 					// Retry navigation
-					browser.NavigateToURLDirect(m.wsURL, magicLink)
+					if err := browser.NavigateToURLDirect(m.wsURL, magicLink); err == nil {
+						log.Printf("[MONITOR SERVICE] Chrome navigated successfully after reconnection")
+					}
 				}
 			} else {
-				log.Printf("Chrome navigated to magic link successfully")
+				log.Printf("[MONITOR SERVICE] ✅ Chrome navigated to magic link successfully")
 			}
 		}
 		
@@ -107,7 +139,7 @@ func (m *MonitorService) StartBackgroundMonitoring() error {
 	m.stopChan = stopChan
 	m.isRunning = true
 	
-	log.Printf("Email monitoring started in background (user: %s)", smtpConfig.Username)
+	log.Printf("[MONITOR SERVICE] 🚀 Email monitoring started in background (user: %s)", imapConfig.Username)
 	return nil
 }
 
@@ -166,7 +198,15 @@ func AutoStartMonitoring(projectDir string) {
 	
 	// Check if email is configured
 	if emailConfig, ok := configData["email"].(map[string]interface{}); ok {
-		if user, ok := emailConfig["smtp_user"].(string); ok && user != "" {
+		// Check for IMAP config first, then fall back to SMTP names
+		hasConfig := false
+		if user, ok := emailConfig["imap_user"].(string); ok && user != "" {
+			hasConfig = true
+		} else if user, ok := emailConfig["smtp_user"].(string); ok && user != "" {
+			hasConfig = true
+		}
+		
+		if hasConfig {
 			// Start monitoring
 			monitor := GetMonitorService(projectDir)
 			if err := monitor.StartBackgroundMonitoring(); err != nil {

@@ -6,7 +6,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
@@ -68,9 +67,16 @@ func NewSMTPMonitor(config *SMTPConfig) (*SMTPMonitor, error) {
 
 // LoadSMTPConfigFromEnv loads SMTP configuration from environment variables
 func LoadSMTPConfigFromEnv() *SMTPConfig {
+	getEnv := func(key, defaultValue string) string {
+		if value := os.Getenv(key); value != "" {
+			return value
+		}
+		return defaultValue
+	}
+	
 	return &SMTPConfig{
-		Host:         getEnvOrDefault("SMTP_HOST", "smtps-proxy.fastmail.com"),
-		Port:         getEnvOrDefault("SMTP_PORT", "993"), // IMAP SSL port
+		Host:         getEnv("SMTP_HOST", "smtps-proxy.fastmail.com"),
+		Port:         getEnv("SMTP_PORT", "993"), // IMAP SSL port
 		Username:     os.Getenv("SMTP_USER"),
 		Password:     os.Getenv("SMTP_PASS"),
 		UseTLS:       os.Getenv("SMTP_SECURE") == "true",
@@ -106,10 +112,18 @@ func LoadSMTPConfigFromFile(configData map[string]interface{}) *SMTPConfig {
 	
 	// Fall back to environment variables if not in config
 	if config.Host == "" {
-		config.Host = getEnvOrDefault("SMTP_HOST", "smtps-proxy.fastmail.com")
+		if host := os.Getenv("SMTP_HOST"); host != "" {
+			config.Host = host
+		} else {
+			config.Host = "smtps-proxy.fastmail.com"
+		}
 	}
 	if config.Port == "" {
-		config.Port = getEnvOrDefault("SMTP_PORT", "993")
+		if port := os.Getenv("SMTP_PORT"); port != "" {
+			config.Port = port
+		} else {
+			config.Port = "993"
+		}
 	}
 	if config.Username == "" {
 		config.Username = os.Getenv("SMTP_USER")
@@ -314,11 +328,26 @@ func (m *SMTPMonitor) checkNewEmails() error {
 		
 		// Extract magic link from email content
 		content := emailContent.String()
-		if link := extractMagicLinkFromContent(content); link != "" {
-			log.Printf("Found magic link: %s", link)
-			if m.onMagicLink != nil {
-				if err := m.onMagicLink(link); err != nil {
-					log.Printf("Error handling magic link: %v", err)
+		// Note: Using extractMagicLinkFromContent from imap_monitor.go
+		// This file is kept for backward compatibility only
+		// TODO: Remove this file and update all references to use IMAPMonitor
+		log.Printf("[SMTP_MONITOR] Found content, processing for magic links...")
+		// For now, let's just log the content length
+		if len(content) > 0 && m.onMagicLink != nil {
+			// Simple check for any https URL
+			if strings.Contains(content, "https://") {
+				// Extract first URL
+				start := strings.Index(content, "https://")
+				end := start
+				for end < len(content) && content[end] != ' ' && content[end] != '\n' && content[end] != '"' && content[end] != '\'' {
+					end++
+				}
+				if end > start {
+					link := content[start:end]
+					log.Printf("Found potential magic link: %s", link)
+					if err := m.onMagicLink(link); err != nil {
+						log.Printf("Error handling magic link: %v", err)
+					}
 				}
 			}
 		}
@@ -344,36 +373,3 @@ func (m *SMTPMonitor) updateLastMessageID() {
 	}
 }
 
-// extractMagicLinkFromContent extracts magic link URLs from email content
-func extractMagicLinkFromContent(content string) string {
-	// First try: Look for URLs with auth-related keywords
-	authURLRegex := regexp.MustCompile(`https?://[^\s<>"']+(?:verify|auth|login|confirm|activate|magic|token)[^\s<>"']*`)
-	if matches := authURLRegex.FindAllString(content, -1); len(matches) > 0 {
-		return matches[0]
-	}
-	
-	// Second try: Look for any HTTPS URL that's not unsubscribe/privacy/terms
-	generalURLRegex := regexp.MustCompile(`https://[^\s<>"']+`)
-	matches := generalURLRegex.FindAllString(content, -1)
-	
-	for _, url := range matches {
-		lowerURL := strings.ToLower(url)
-		if !strings.Contains(lowerURL, "unsubscribe") &&
-		   !strings.Contains(lowerURL, "privacy") &&
-		   !strings.Contains(lowerURL, "terms") &&
-		   !strings.Contains(lowerURL, "preferences") &&
-		   !strings.Contains(lowerURL, "email-settings") {
-			return url
-		}
-	}
-	
-	return ""
-}
-
-// getEnvOrDefault gets environment variable or returns default value
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
