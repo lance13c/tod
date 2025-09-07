@@ -2,7 +2,7 @@
 
 ## The Problem
 
-When you run Chrome with just `--remote-debugging-port=9229`, it may not properly expose the debugging interface. This is because:
+When you run Chrome with just `--remote-debugging-port=9222`, it may not properly expose the debugging interface. This is because:
 
 1. Chrome needs a separate user data directory to avoid conflicts with existing instances
 2. The debugging address needs to be explicitly set
@@ -13,16 +13,16 @@ When you run Chrome with just `--remote-debugging-port=9229`, it may not properl
 ### Method 1: Use the provided script
 
 ```bash
-./start_chrome_debug.sh 9229
+./start_chrome_debug.sh 9222
 ```
 
 ### Method 2: Manual command with all required flags
 
 ```bash
 /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
-  --remote-debugging-port=9229 \
+  --remote-debugging-port=9222 \
   --remote-debugging-address=127.0.0.1 \
-  --user-data-dir=/tmp/chrome-debug-9229 \
+  --user-data-dir=/tmp/chrome-debug-9222 \
   --no-first-run \
   --no-default-browser-check
 ```
@@ -31,15 +31,15 @@ When you run Chrome with just `--remote-debugging-port=9229`, it may not properl
 
 ```bash
 /Applications/Google\ Chrome\ Canary.app/Contents/MacOS/Google\ Chrome\ Canary \
-  --remote-debugging-port=9229 \
+  --remote-debugging-port=9222 \
   --user-data-dir=/tmp/chrome-debug-canary
 ```
 
 ## Key Flags Explained
 
-- `--remote-debugging-port=9229`: Enables the DevTools Protocol on port 9229
+- `--remote-debugging-port=9222`: Enables the DevTools Protocol on port 9222
 - `--remote-debugging-address=127.0.0.1`: Binds to localhost (some versions need this)
-- `--user-data-dir=/tmp/chrome-debug-9229`: Uses a separate profile to avoid conflicts
+- `--user-data-dir=/tmp/chrome-debug-9222`: Uses a separate profile to avoid conflicts
 - `--no-first-run`: Skips first-run wizards
 - `--no-default-browser-check`: Prevents default browser prompts
 
@@ -49,10 +49,10 @@ After starting Chrome, test that the debugging port is working:
 
 ```bash
 # Check version endpoint
-curl http://127.0.0.1:9229/json/version
+curl http://127.0.0.1:9222/json/version
 
 # List all targets
-curl http://127.0.0.1:9229/json/list
+curl http://127.0.0.1:9222/json/list
 
 # Or use the TOD test tool
 go run tools/test_chrome_debug.go
@@ -75,7 +75,7 @@ killall "Google Chrome"
 
 **Solution**: Either kill the process using the port or choose a different port:
 ```bash
-lsof -ti:9229 | xargs kill -9
+lsof -ti:9222 | xargs kill -9
 ```
 
 ## Using with TOD
@@ -93,7 +93,7 @@ TOD's browser client automatically enables debugging when starting browsers. The
 
 ```bash
 # Set custom debugging port (default: 9222)
-export BROWSER_DEBUG_PORT=9229
+export BROWSER_DEBUG_PORT=9222
 
 # Disable debugging completely
 export BROWSER_DISABLE_DEBUG=true

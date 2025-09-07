@@ -31,8 +31,8 @@ type DebuggerScanResult struct {
 
 // ScanForChromeDebugger scans common Chrome debugger ports for open instances
 func ScanForChromeDebugger() ([]DebuggerScanResult, error) {
-	// Common Chrome debugger ports (9229 first as it's our default)
-	ports := []int{9229, 9222, 9223, 9224, 9225}
+	// Common Chrome debugger ports (9222 first as it's our default)
+	ports := []int{9222, 9222, 9223, 9224, 9225}
 	
 	var results []DebuggerScanResult
 	var lastError error

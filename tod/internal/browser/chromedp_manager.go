@@ -103,7 +103,7 @@ func NewChromeDPManager(baseURL string, headless bool) (*ChromeDPManager, error)
 	opts = append(opts,
 		chromedp.WindowSize(1920, 1080),
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
-		chromedp.Flag("remote-debugging-port", "9229"),
+		chromedp.Flag("remote-debugging-port", "9222"),
 		chromedp.Flag("remote-debugging-address", "127.0.0.1"),
 	)
 

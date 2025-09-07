@@ -3,7 +3,7 @@
 # Start Chrome with remote debugging enabled
 # This script ensures Chrome starts with the correct flags for debugging
 
-PORT=${1:-9229}
+PORT=${1:-9222}
 echo "Starting Chrome with remote debugging on port $PORT..."
 
 # Kill any existing Chrome instances on this port (optional)

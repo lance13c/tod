@@ -1,3 +1,4 @@
+//go:build ignore
 // +build ignore
 
 package main
@@ -21,7 +22,7 @@ func main() {
 }
 
 func testPorts() {
-	ports := []int{9222, 9223, 9224, 9225, 9229}
+	ports := []int{9222, 9223, 9224, 9225, 9222}
 	hosts := []string{"localhost", "127.0.0.1", "0.0.0.0"}
 	
 	foundAny := false
