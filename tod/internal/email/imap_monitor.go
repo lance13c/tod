@@ -576,31 +576,67 @@ func (m *IMAPMonitor) CheckRecentEmails(minutes int) (string, error) {
 func extractMagicLinkFromContent(content string) string {
 	logging.Debug("[REGEX EXTRACT] Starting regex extraction on %d bytes", len(content))
 	
-	// Look for URLs containing magic-link/verify or similar auth patterns
-	// This specific pattern should match your URL structure
-	authURLRegex := regexp.MustCompile(
-		`(https?://[^/\s]+/[^?\s]*(?:magic-link|auth|signin|verify)[^?\s]*\?[^\s"'<>]+)`,
-	)
-	matches := authURLRegex.FindAllString(content, -1)
-	logging.Debug("[REGEX EXTRACT] Auth regex found %d matches", len(matches))
+	// First, handle potential line breaks and whitespace in URLs
+	// Emails often wrap long URLs across lines
+	// Replace common line break patterns that might be in the middle of URLs
+	cleanedContent := content
+	// Remove soft line breaks (=\r\n or =\n) which are common in quoted-printable encoding
+	cleanedContent = regexp.MustCompile(`=[\r\n]+`).ReplaceAllString(cleanedContent, "")
+	// Remove line breaks that might be inserted in the middle of URLs
+	cleanedContent = regexp.MustCompile(`(https?://[^\s]*?)[\r\n]+([^\s]*)`).ReplaceAllString(cleanedContent, "$1$2")
 	
-	if len(matches) > 0 {
-		fullURL := matches[0]
+	// Look for URLs containing magic-link/verify or similar auth patterns
+	// Updated pattern to better handle URL parameters with = signs and encoded characters
+	// The key change: use [^\s]+ to match until whitespace, allowing = and & in URLs
+	authURLRegex := regexp.MustCompile(
+		`https?://[^\s]+/[^\s]*(?:magic-link|auth|signin|verify)[^\s]*\?[^\s]+`,
+	)
+	
+	// Also try to find URLs that might be wrapped in angle brackets
+	bracketURLRegex := regexp.MustCompile(
+		`<(https?://[^>]+/[^>]*(?:magic-link|auth|signin|verify)[^>]*\?[^>]+)>`,
+	)
+	
+	// Try bracket-wrapped URLs first (more specific)
+	matches := bracketURLRegex.FindAllStringSubmatch(cleanedContent, -1)
+	if len(matches) > 0 && len(matches[0]) > 1 {
+		fullURL := matches[0][1] // Get the captured group (URL without brackets)
+		logging.Debug("[REGEX EXTRACT] Found bracket-wrapped URL: %s", fullURL)
+		logging.Info("[REGEX EXTRACT] Extracted magic link: %s", fullURL)
+		return fullURL
+	}
+	
+	// Try regular URL pattern
+	matches2 := authURLRegex.FindAllString(cleanedContent, -1)
+	logging.Debug("[REGEX EXTRACT] Auth regex found %d matches", len(matches2))
+	
+	if len(matches2) > 0 {
+		fullURL := matches2[0]
 		logging.Debug("[REGEX EXTRACT] Raw URL found: %s", fullURL)
 		
-		// Minimal cleanup - only remove obvious email artifacts at the end
-		// Don't remove characters that could be part of URL encoding
+		// Clean up the URL more carefully
+		// Remove trailing punctuation that's definitely not part of the URL
 		fullURL = strings.TrimRight(fullURL, " \t\n\r")
 		
-		// Remove only if these are at the very end and clearly not part of the URL
-		lastChar := ""
-		if len(fullURL) > 0 {
-			lastChar = fullURL[len(fullURL)-1:]
-		}
-		
-		// Only trim these specific punctuation marks if they're at the end
-		if lastChar == "." || lastChar == "," || lastChar == "!" || lastChar == ";" {
-			fullURL = fullURL[:len(fullURL)-1]
+		// Handle common email artifacts at the end
+		// But be careful not to remove valid URL characters
+		for {
+			if len(fullURL) == 0 {
+				break
+			}
+			lastChar := fullURL[len(fullURL)-1:]
+			// Only remove these if they're truly at the end and not part of encoding
+			if lastChar == "." || lastChar == "," || lastChar == "!" || lastChar == ";" || 
+			   lastChar == ":" || lastChar == ")" || lastChar == "]" || lastChar == "}" ||
+			   lastChar == ">" || lastChar == "'" || lastChar == "\"" {
+				// But don't remove ) if there's a matching ( in the URL
+				if lastChar == ")" && strings.Count(fullURL, "(") == strings.Count(fullURL, ")") {
+					break
+				}
+				fullURL = fullURL[:len(fullURL)-1]
+			} else {
+				break
+			}
 		}
 		
 		logging.Info("[REGEX EXTRACT] Extracted magic link: %s", fullURL)
@@ -608,12 +644,12 @@ func extractMagicLinkFromContent(content string) string {
 	}
 	
 	// Second try: Look for any URL with query parameters (likely to be magic links)
-	// This pattern specifically looks for URLs with ? followed by parameters
-	generalURLRegex := regexp.MustCompile(`https?://[^\s"'<>]+\?[^\s"'<>]+`)
-	matches = generalURLRegex.FindAllString(content, -1)
-	logging.Debug("[REGEX EXTRACT] General regex found %d URLs with params", len(matches))
+	// Updated to better handle = signs in query parameters
+	generalURLRegex := regexp.MustCompile(`https?://[^\s<>"]+\?[^\s<>"]+`)
+	matches2 = generalURLRegex.FindAllString(cleanedContent, -1)
+	logging.Debug("[REGEX EXTRACT] General regex found %d URLs with params", len(matches2))
 	
-	for _, url := range matches {
+	for _, url := range matches2 {
 		lowerURL := strings.ToLower(url)
 		
 		// Skip common non-auth links
@@ -624,8 +660,24 @@ func extractMagicLinkFromContent(content string) string {
 		   !strings.Contains(lowerURL, "email-settings") &&
 		   !strings.Contains(lowerURL, "support") &&
 		   !strings.Contains(lowerURL, "help") {
-			// Minimal cleanup
-			cleanURL := strings.TrimRight(url, " \t\n\r.,;!")
+			// More careful cleanup
+			cleanURL := strings.TrimRight(url, " \t\n\r")
+			for {
+				if len(cleanURL) == 0 {
+					break
+				}
+				lastChar := cleanURL[len(cleanURL)-1:]
+				if lastChar == "." || lastChar == "," || lastChar == "!" || lastChar == ";" ||
+				   lastChar == ":" || lastChar == ")" || lastChar == "]" || lastChar == "}" ||
+				   lastChar == ">" || lastChar == "'" || lastChar == "\"" {
+					if lastChar == ")" && strings.Count(cleanURL, "(") == strings.Count(cleanURL, ")") {
+						break
+					}
+					cleanURL = cleanURL[:len(cleanURL)-1]
+				} else {
+					break
+				}
+			}
 			logging.Debug("[REGEX EXTRACT] Selected URL: %s", cleanURL)
 			return cleanURL
 		}
