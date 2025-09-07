@@ -1,6 +1,6 @@
 cask "tod" do
-  version "0.0.6"
-  sha256 "96dbcda8501c129350da3fb8c7aac6e40935c415305d49c63cd5f3691ed47093"
+  version "0.0.7"
+  sha256 "1adc16bbfacad8958b2b448528f259a1e5e7ecbdc9077108163e55b8c59b747e"
 
   url "https://github.com/lance13c/tod/releases/download/v#{version}/tod-#{version}.dmg",
       verified: "github.com/lance13c/tod/"
