@@ -68,6 +68,7 @@ export default function LoginPage() {
     try {
       const result = await signIn.magicLink({
         email: magicLinkEmail,
+        callbackURL: "/dashboard",
       });
 
       if (result.data) {
@@ -75,7 +76,23 @@ export default function LoginPage() {
         setShowMagicLinkForm(false);
       }
     } catch (err: any) {
-      setError(err.message || "Failed to send magic link. Please try again.");
+      // If callback URL is invalid, try without it
+      if (err.message && err.message.includes("INVALID_CALLBACKURL")) {
+        try {
+          const result = await signIn.magicLink({
+            email: magicLinkEmail,
+          });
+
+          if (result.data) {
+            setMagicLinkSent(true);
+            setShowMagicLinkForm(false);
+          }
+        } catch (retryErr: any) {
+          setError(retryErr.message || "Failed to send magic link. Please try again.");
+        }
+      } else {
+        setError(err.message || "Failed to send magic link. Please try again.");
+      }
     } finally {
       setMagicLinkLoading(false);
     }
