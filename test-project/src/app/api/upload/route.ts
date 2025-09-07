@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
-import { db } from '@/server/db';
+import { prisma as db } from '@/server/db';
 
 // Configure max body size for file uploads (250MB)
 export const runtime = 'nodejs';
