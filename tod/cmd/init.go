@@ -85,9 +85,15 @@ func runInit(cmd *cobra.Command, args []string) {
 	if isInitialized {
 		force, _ := cmd.Flags().GetBool("force")
 		if !force {
-			fmt.Println("Tod is already initialized in this project!")
-			fmt.Println("Use --force to reinitialize or run 'tod' to start.")
-			os.Exit(1)
+			fmt.Println("✓ Tod is already initialized in this project!")
+			fmt.Println()
+			fmt.Println("You can:")
+			fmt.Println("  • Run 'tod' to launch the interactive TUI")
+			fmt.Println("  • Run 'tod init --force' to reinitialize with new settings")
+			fmt.Println("  • Run 'tod doctor' to check your configuration")
+			fmt.Println()
+			fmt.Println("Configuration file: .tod/config.yaml")
+			os.Exit(0)
 		}
 
 		// Load existing config to use as defaults

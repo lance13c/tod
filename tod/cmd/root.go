@@ -85,6 +85,12 @@ func initConfig() {
 		todConfig, err = loader.Load()
 		if err != nil {
 			logging.Warn("Failed to load config: %v", err)
+			// Even though IsInitialized returned true, we couldn't load the config
+			// This might happen if the config file is corrupted or has invalid syntax
+			if verbose {
+				fmt.Fprintf(os.Stderr, "[ERROR] Config file exists but couldn't be loaded: %v\n", err)
+				fmt.Fprintf(os.Stderr, "[INFO] Try 'tod init --force' to reinitialize\n")
+			}
 		} else {
 			if verbose {
 				logging.Debug("Config loaded in %v", time.Since(loadStart))
@@ -101,6 +107,10 @@ func initConfig() {
 			email.AutoStartMonitoring(projectDir)
 			
 			logging.Info("Using config with environment: %s", todConfig.Current)
+		}
+	} else {
+		if verbose {
+			logging.Debug("No Tod configuration found in %s", projectDir)
 		}
 	}
 
@@ -135,7 +145,14 @@ func runTUI(cmd *cobra.Command, args []string) {
 	// Check if project is initialized
 	if todConfig == nil {
 		fmt.Println("🚨 Tod is not initialized in this project!")
-		fmt.Println("Run 'tod init' to get started.")
+		fmt.Println()
+		fmt.Println("To get started:")
+		fmt.Println("  1. Run 'tod init' to initialize Tod in this project")
+		fmt.Println("  2. Or check if you're in the right directory")
+		fmt.Println()
+		fmt.Println("If you believe Tod is already initialized:")
+		fmt.Println("  - Check if .tod/config.yaml exists")
+		fmt.Println("  - Try 'tod init --force' to reinitialize")
 		os.Exit(1)
 	}
 

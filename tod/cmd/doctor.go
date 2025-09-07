@@ -50,7 +50,12 @@ func runDoctor(cmd *cobra.Command, args []string) {
 	if !loader.IsInitialized() {
 		fmt.Println("❌ FAILED")
 		fmt.Println("   Tod is not initialized in this project.")
-		fmt.Println("   Run 'tod init' to get started.")
+		fmt.Println()
+		fmt.Println("   To fix this:")
+		fmt.Println("   1. Run 'tod init' to initialize Tod")
+		fmt.Println("   2. Or navigate to a project with Tod already configured")
+		fmt.Println()
+		fmt.Println("   Looking for .tod/config.yaml in:", projectDir)
 		os.Exit(1)
 	}
 	fmt.Println("✅ PASSED")
