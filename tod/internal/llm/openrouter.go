@@ -577,3 +577,11 @@ func (c *OpenRouterClient) EstimateCost(operation string, inputSize int) *UsageS
 
 	return c.costCalc.EstimateCost("openrouter", c.model, inputTokens, outputTokens)
 }
+
+// RankNavigationElements implements navigation element ranking for OpenRouter
+func (c *OpenRouterClient) RankNavigationElements(ctx context.Context, userInput string, elements []NavigationElement) (*NavigationRanking, error) {
+	// For now, fall back to mock implementation
+	// TODO: Implement actual OpenRouter API call for ranking
+	mock := &mockClient{}
+	return mock.RankNavigationElements(ctx, userInput, elements)
+}

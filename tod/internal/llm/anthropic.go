@@ -120,3 +120,8 @@ func (c *anthropicClientSimple) EstimateCost(operation string, inputSize int) *U
 	// Use real cost calculator with provider and model
 	return c.costCalc.EstimateCost("anthropic", c.model, mockEstimate.InputTokens, mockEstimate.OutputTokens)
 }
+
+// RankNavigationElements delegates to mock implementation
+func (c *anthropicClientSimple) RankNavigationElements(ctx context.Context, userInput string, elements []NavigationElement) (*NavigationRanking, error) {
+	return c.mock.RankNavigationElements(ctx, userInput, elements)
+}

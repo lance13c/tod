@@ -430,3 +430,41 @@ func (c *openAIClient) EstimateCost(operation string, inputSize int) *UsageStats
 		RequestTime:  time.Now(),
 	}
 }
+
+// RankNavigationElements implements navigation element ranking using OpenAI
+func (c *openAIClient) RankNavigationElements(ctx context.Context, userInput string, elements []NavigationElement) (*NavigationRanking, error) {
+	// Format elements for the prompt
+	elementsText := ""
+	for i, element := range elements {
+		elementsText += fmt.Sprintf("%d. Text: \"%s\", Selector: \"%s\", URL: \"%s\", Type: \"%s\"\n", 
+			i+1, element.Text, element.Selector, element.URL, element.Type)
+	}
+
+	// Create the prompt
+	prompt := fmt.Sprintf(navigationRankingPrompt, userInput, elementsText)
+
+	// Make the API call
+	messages := []OpenAIMessage{
+		{Role: "system", Content: "You are a web navigation expert. Return only valid JSON."},
+		{Role: "user", Content: prompt},
+	}
+
+	resp, err := c.makeRequest(ctx, messages)
+	if err != nil {
+		return nil, fmt.Errorf("OpenAI request failed: %w", err)
+	}
+
+	// Parse the JSON response
+	var rankedElements []RankedNavigationElement
+	if err := json.Unmarshal([]byte(resp.Choices[0].Message.Content), &rankedElements); err != nil {
+		// If JSON parsing fails, fall back to mock implementation
+		log.Printf("Failed to parse OpenAI navigation ranking response, falling back to basic matching: %v", err)
+		mock := &mockClient{}
+		return mock.RankNavigationElements(ctx, userInput, elements)
+	}
+
+	return &NavigationRanking{
+		Elements: rankedElements,
+		Usage:    c.lastUsage,
+	}, nil
+}

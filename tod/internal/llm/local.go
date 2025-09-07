@@ -627,6 +627,103 @@ func (c *localClient) InterpretCommandWithContext(ctx context.Context, command s
 	return c.InterpretCommand(ctx, command, availableActions)
 }
 
+// RankNavigationElements implements the Client interface using local ranking
+func (c *localClient) RankNavigationElements(ctx context.Context, userInput string, elements []NavigationElement) (*NavigationRanking, error) {
+	// Simple local ranking based on text similarity
+	var rankedElements []RankedNavigationElement
+	
+	userInputLower := strings.ToLower(userInput)
+	
+	for _, element := range elements {
+		score := c.calculateSimpleScore(userInputLower, element.Text, element.Type)
+		
+		rankedElements = append(rankedElements, RankedNavigationElement{
+			NavigationElement: element,
+			Confidence:        score, // Use calculated similarity score
+			Reasoning:         fmt.Sprintf("Local text similarity matching for '%s'", element.Text),
+			Strategy:          "standard",
+		})
+	}
+	
+	// Sort by confidence (highest first)  
+	for i := 0; i < len(rankedElements)-1; i++ {
+		for j := i + 1; j < len(rankedElements); j++ {
+			if rankedElements[i].Confidence < rankedElements[j].Confidence {
+				rankedElements[i], rankedElements[j] = rankedElements[j], rankedElements[i]
+			}
+		}
+	}
+	
+	return &NavigationRanking{
+		Elements: rankedElements,
+		Usage: &UsageStats{
+			Provider:     "local",
+			Model:        "local-ranking",
+			InputTokens:  0,
+			OutputTokens: 0,
+			TotalTokens:  0,
+			InputCost:    0.0,
+			OutputCost:   0.0,
+			TotalCost:    0.0,
+		},
+	}, nil
+}
+
+// calculateSimpleScore calculates a simple similarity score between user input and element
+func (c *localClient) calculateSimpleScore(userInput, elementText, elementType string) float64 {
+	elementTextLower := strings.ToLower(elementText)
+	
+	// Exact match
+	if userInput == elementTextLower {
+		return 1.0
+	}
+	
+	// Prefix match
+	if strings.HasPrefix(elementTextLower, userInput) {
+		return 0.9
+	}
+	
+	// Contains match
+	if strings.Contains(elementTextLower, userInput) {
+		return 0.7
+	}
+	
+	// Word overlap
+	userWords := strings.Fields(userInput)
+	elementWords := strings.Fields(elementTextLower)
+	
+	matches := 0
+	for _, userWord := range userWords {
+		for _, elementWord := range elementWords {
+			if strings.Contains(elementWord, userWord) || strings.Contains(userWord, elementWord) {
+				matches++
+				break
+			}
+		}
+	}
+	
+	if len(userWords) > 0 {
+		wordScore := float64(matches) / float64(len(userWords))
+		if wordScore > 0 {
+			return 0.3 + (wordScore * 0.4) // Scale to 0.3-0.7 range
+		}
+	}
+	
+	// Type-based boost for common actions
+	switch elementType {
+	case "button", "link":
+		if strings.Contains(userInput, "click") || strings.Contains(userInput, "go") {
+			return 0.2
+		}
+	case "input":
+		if strings.Contains(userInput, "type") || strings.Contains(userInput, "fill") {
+			return 0.2
+		}
+	}
+	
+	return 0.0
+}
+
 // EstimateCost implements the Client interface
 func (c *localClient) EstimateCost(operation string, inputSize int) *UsageStats {
 	// Local analysis is free

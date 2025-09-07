@@ -1,7 +1,9 @@
 package views
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/ciciliostudio/tod/internal/browser"
 	"github.com/ciciliostudio/tod/internal/config"
 	"github.com/ciciliostudio/tod/internal/llm"
+	"github.com/ciciliostudio/tod/internal/users"
 )
 
 // ElementType represents the type of navigable element
@@ -23,6 +26,7 @@ const (
 	ButtonElement
 	FormElement
 	ActionElement
+	FormFieldElement
 )
 
 // InputMode represents the current input mode
@@ -32,6 +36,7 @@ const (
 	TypingMode InputMode = iota
 	SelectingMode
 	CommandMode
+	FormInputMode
 )
 
 // SuggestionType represents the type of suggestion
@@ -41,8 +46,10 @@ const (
 	LinkSuggestion SuggestionType = iota
 	ActionSuggestion
 	FormSuggestion
+	FormFieldSuggestion
 	CommandSuggestion
 	HistorySuggestion
+	SectionHeaderSuggestion
 )
 
 // NavigableElement represents an element that can be navigated to or interacted with
@@ -96,9 +103,27 @@ type NavigationView struct {
 	showSuggestions bool
 	maxSuggestions  int
 
+	// Scrolling state for suggestions viewport
+	suggestionScrollOffset   int // Current scroll offset in suggestions list
+	visibleSuggestionCount   int // Number of suggestions that fit in viewport
+	maxVisibleSuggestions    int // Maximum suggestions to show (calculated from terminal height)
+
 	// Page state
 	pageElements []NavigableElement
 	isAnalyzing  bool
+
+	// Form handling
+	formHandler     *FormHandler
+	authConfig      *AuthConfigManager
+	inputModal      *InputModal
+	currentForm     *LoginForm
+	formProcessing  bool
+	awaitingInput   bool
+	pendingField    *FormField
+
+	// Authentication flow
+	authFlow       *users.AuthFlowManager
+	isAuthenticating bool
 
 	// Navigation history
 	navigationHistory []string
@@ -165,6 +190,16 @@ func NewNavigationView(cfg *config.Config) *NavigationView {
 
 	env := cfg.GetCurrentEnv()
 
+	// Initialize auth config manager (needs project directory)
+	projectDir := "." // Default to current directory, could be made configurable
+	authConfig := NewAuthConfigManager(projectDir)
+
+	// Initialize auth flow manager
+	var authFlow *users.AuthFlowManager
+	if llmClient != nil {
+		authFlow, _ = users.NewAuthFlowManager(projectDir, llmClient)
+	}
+
 	return &NavigationView{
 		config:         cfg,
 		llmClient:      llmClient,
@@ -176,6 +211,10 @@ func NewNavigationView(cfg *config.Config) *NavigationView {
 		maxHistory:     10, // Keep last 10 history messages
 		width:          80,
 		height:         25,
+
+		// Initialize new components
+		authConfig: authConfig,
+		authFlow:   authFlow,
 
 		// Styles
 		titleStyle: lipgloss.NewStyle().
@@ -266,11 +305,26 @@ func (v *NavigationView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.pageElements = msg.Elements
 			// Generate initial suggestions (will show even with empty input)
 			v.generateSuggestions()
+		} else {
+			// Clear elements on error
+			v.pageElements = []NavigableElement{}
 		}
 
 	case NavigationErrorMsg:
 		v.isProcessing = false
 		// Could show error in status or as temporary message
+
+	case AuthenticationCompleteMsg:
+		v.isAuthenticating = false
+		if msg.Success {
+			v.addHistory("🎉 Authentication completed successfully")
+		} else {
+			v.addHistory(fmt.Sprintf("❌ Authentication failed: %v", msg.Error))
+		}
+
+	case FormInputModalReadyMsg:
+		// The modal has been created and shown, just need to trigger UI update
+		return v, nil
 	}
 
 	// Update input
@@ -281,11 +335,13 @@ func (v *NavigationView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return v, tea.Batch(cmds...)
 }
 
-// View renders the navigation view
+// View renders the navigation view with fixed header and scrollable suggestions
 func (v *NavigationView) View() string {
-	title := v.titleStyle.Render("Navigation Mode")
+	// Calculate viewport dimensions
+	v.calculateViewportDimensions()
 
-	// Status bar
+	// Fixed header section (always visible)
+	title := v.titleStyle.Render("Navigation Mode")
 	status := v.renderStatusBar()
 
 	// History section (Claude Code style - simple text)
@@ -294,33 +350,56 @@ func (v *NavigationView) View() string {
 		historyView = strings.Join(v.history, "\n")
 	}
 
-	// Input section
+	// Input section (always visible)
 	inputView := lipgloss.JoinHorizontal(
 		lipgloss.Left,
 		"> ",
 		v.input.View(),
 	)
 
-	// Suggestions section
-	suggestionsView := v.renderSuggestions()
-
-	// Help text
-	help := v.helpStyle.Render("[Tab: complete] [↑↓: select] [Enter: go] [Esc: clear] [Ctrl+C: quit]")
-
-	// Build the view - include history if it exists
-	sections := []string{title, status}
-
+	// Build fixed header
+	headerSections := []string{title, status}
 	if historyView != "" {
-		sections = append(sections, "", historyView)
+		headerSections = append(headerSections, "", historyView)
+	}
+	headerSections = append(headerSections, "", inputView)
+	
+	fixedHeader := lipgloss.JoinVertical(lipgloss.Left, headerSections...)
+
+	// Scrollable suggestions section (uses available space)
+	suggestionsView := v.renderSuggestionsViewport()
+
+	// Help text (always visible at bottom)
+	help := v.helpStyle.Render("[Tab: complete] [↑↓: navigate] [Enter: go] [Esc: clear] [Ctrl+C: quit]")
+
+	// Combine fixed header + scrollable suggestions + help
+	mainView := lipgloss.JoinVertical(lipgloss.Left, fixedHeader, "", suggestionsView, "", help)
+
+	// If input modal is showing, overlay it
+	if v.inputModal != nil && v.inputModal.IsShowing() {
+		modalView := v.inputModal.View()
+		// Simple overlay - center the modal on screen
+		return mainView + "\n" + modalView
 	}
 
-	sections = append(sections, "", inputView, "", suggestionsView, "", help)
-
-	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+	return mainView
 }
 
 // handleKeyPress handles keyboard input
 func (v *NavigationView) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// If input modal is showing, handle modal input first
+	if v.inputModal != nil && v.inputModal.IsShowing() {
+		var cmd tea.Cmd
+		v.inputModal, cmd = v.inputModal.Update(msg)
+		
+		// Check if modal completed
+		if v.inputModal.IsComplete() {
+			return v.handleModalComplete()
+		}
+		
+		return v, cmd
+	}
+
 	switch msg.Type {
 	case tea.KeyEsc:
 		if v.showSuggestions {
@@ -341,10 +420,16 @@ func (v *NavigationView) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyUp:
 		if v.showSuggestions && len(v.suggestions) > 0 {
-			if v.selectedIndex > 0 {
-				v.selectedIndex--
-			} else {
-				v.selectedIndex = len(v.suggestions) - 1
+			v.selectedIndex = v.findNextSelectableIndex(v.selectedIndex, -1)
+			// Ensure selected item is visible in viewport
+			v.scrollToShowSelected()
+			// Populate input field with selected suggestion
+			if v.selectedIndex >= 0 && v.selectedIndex < len(v.suggestions) {
+				suggestion := v.suggestions[v.selectedIndex]
+				if suggestion.Type != SectionHeaderSuggestion {
+					v.input.SetValue(suggestion.Text)
+					v.input.CursorEnd()
+				}
 			}
 		}
 		return v, nil
@@ -353,12 +438,19 @@ func (v *NavigationView) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !v.showSuggestions {
 			v.generateSuggestions()
 			v.showSuggestions = true
-			v.selectedIndex = 0
+			v.selectedIndex = v.findFirstSelectableIndex()
+			v.scrollToShowSelected()
 		} else if len(v.suggestions) > 0 {
-			if v.selectedIndex < len(v.suggestions)-1 {
-				v.selectedIndex++
-			} else {
-				v.selectedIndex = 0
+			v.selectedIndex = v.findNextSelectableIndex(v.selectedIndex, 1)
+			// Ensure selected item is visible in viewport
+			v.scrollToShowSelected()
+		}
+		// Populate input field with selected suggestion
+		if v.showSuggestions && v.selectedIndex >= 0 && v.selectedIndex < len(v.suggestions) {
+			suggestion := v.suggestions[v.selectedIndex]
+			if suggestion.Type != SectionHeaderSuggestion {
+				v.input.SetValue(suggestion.Text)
+				v.input.CursorEnd()
 			}
 		}
 		return v, nil
@@ -422,6 +514,10 @@ func (v *NavigationView) connectToChrome() tea.Cmd {
 		}
 
 		v.chromeDPManager = manager
+		
+		// Initialize form handler with the chrome manager
+		v.formHandler = NewFormHandler(manager)
+		
 		return ChromeLaunchedMsg{}
 	}
 }
@@ -435,16 +531,26 @@ func (v *NavigationView) analyzeCurrentPage() tea.Cmd {
 
 		v.isAnalyzing = true
 
+		// Wait for page to be fully loaded before analyzing
+		if err := v.chromeDPManager.WaitForPageLoad(5 * time.Second); err != nil {
+			fmt.Printf("Warning: page load wait failed: %v\n", err)
+		}
+
 		// Get page info
 		url, title, _ := v.chromeDPManager.GetPageInfo()
 		v.currentURL = url
 		v.currentTitle = title
 
+		fmt.Printf("🔍 Analyzing page: %s (title: %s)\n", url, title)
+
 		// Extract interactive elements
 		interactiveElements, err := v.chromeDPManager.ExtractInteractiveElements()
 		if err != nil {
+			fmt.Printf("❌ Failed to extract interactive elements: %v\n", err)
 			return PageAnalysisCompleteMsg{Error: err}
 		}
+
+		fmt.Printf("Found %d interactive elements\n", len(interactiveElements))
 
 		// Convert to NavigableElements
 		var elements []NavigableElement
@@ -476,11 +582,23 @@ func (v *NavigationView) analyzeCurrentPage() tea.Cmd {
 					if elem.Type == "submit" {
 						navElement.Type = FormElement
 						navElement.Method = "click"
+					} else if elem.Type == "checkbox" || elem.Type == "radio" {
+						navElement.Type = ActionElement
+						navElement.Method = "click"
+						navElement.Description = fmt.Sprintf("Toggle %s", elem.Text)
 					} else {
 						navElement.Type = FormElement
 						navElement.Method = "type"
 					}
+				case "select":
+					navElement.Type = ActionElement
+					navElement.Method = "click" 
+					navElement.Description = fmt.Sprintf("Select from %s", elem.Text)
+				case "textarea":
+					navElement.Type = FormElement
+					navElement.Method = "type"
 				default:
+					// Handle other interactive elements
 					navElement.Type = ActionElement
 					navElement.Method = "click"
 				}
@@ -489,6 +607,27 @@ func (v *NavigationView) analyzeCurrentPage() tea.Cmd {
 			elements = append(elements, navElement)
 		}
 
+		// Also detect forms if form handler is available
+		if v.formHandler != nil {
+			fmt.Printf("Form handler available, detecting forms on %s...\n", url)
+			if form, err := v.formHandler.DetectLoginForm(); err == nil && form != nil {
+				fmt.Printf("✅ Form detected: Domain=%s, EmailField=%v, PasswordField=%v, IsMagicLink=%v, IsComplete=%v\n", 
+					form.Domain, form.EmailField != nil, form.PasswordField != nil, form.IsMagicLink, form.IsComplete)
+				v.currentForm = form
+				v.addFormFieldsToElements(&elements, form)
+				fmt.Printf("Added %d form field actions to elements\n", countFormFields(form))
+			} else {
+				if err != nil {
+					fmt.Printf("❌ Form detection failed: %v\n", err)
+				} else {
+					fmt.Printf("⚠️ No forms detected on page\n")
+				}
+			}
+		} else {
+			fmt.Printf("⚠️ Form handler not available\n")
+		}
+
+		fmt.Printf("✅ Page analysis complete: %d total navigable elements\n", len(elements))
 		return PageAnalysisCompleteMsg{Elements: elements}
 	}
 }
@@ -517,39 +656,59 @@ func (v *NavigationView) generateSuggestions() {
 			})
 		}
 
-		// Add top page elements (prioritize links and buttons)
-		elemCount := 0
-		maxInitialElements := 7 // Show up to 7 elements when no input
-
+		// Add ALL page elements with smart categorization and prioritization
+		// Separate elements by type for better organization
+		var formFields []NavigableElement
+		var formSubmits []NavigableElement
+		var buttons []NavigableElement
+		var navigationLinks []NavigableElement
+		var otherElements []NavigableElement
+		
 		for _, elem := range v.pageElements {
-			if elemCount >= maxInitialElements {
-				break
-			}
-
-			suggestion := Suggestion{
-				Type:       v.elementTypeToSuggestionType(elem.Type),
-				Text:       elem.Text,
-				Element:    &elem,
-				MatchScore: 0.8,
-			}
-
 			switch elem.Type {
-			case LinkElement:
-				suggestion.Subtitle = "→ " + elem.URL
-			case ButtonElement:
-				suggestion.Subtitle = "button"
+			case FormFieldElement:
+				formFields = append(formFields, elem)
 			case FormElement:
-				suggestion.Subtitle = "📝 form"
+				if elem.Method == "form_submit" {
+					formSubmits = append(formSubmits, elem)
+				} else {
+					otherElements = append(otherElements, elem)
+				}
+			case ButtonElement:
+				buttons = append(buttons, elem)
+			case LinkElement:
+				navigationLinks = append(navigationLinks, elem)
 			case ActionElement:
-				suggestion.Subtitle = "action"
+				otherElements = append(otherElements, elem)
+			default:
+				otherElements = append(otherElements, elem)
 			}
-
-			v.suggestions = append(v.suggestions, suggestion)
-			elemCount++
+		}
+		
+		// Create prioritized list based on context
+		prioritizedElements := []NavigableElement{}
+		
+		if v.currentForm != nil {
+			// Form context: prioritize form actions first
+			prioritizedElements = append(prioritizedElements, formFields...)
+			prioritizedElements = append(prioritizedElements, formSubmits...)
+			prioritizedElements = append(prioritizedElements, buttons...)
+			prioritizedElements = append(prioritizedElements, navigationLinks...)
+			prioritizedElements = append(prioritizedElements, otherElements...)
+		} else {
+			// Regular context: prioritize interactive elements
+			prioritizedElements = append(prioritizedElements, buttons...)
+			prioritizedElements = append(prioritizedElements, formFields...)
+			prioritizedElements = append(prioritizedElements, formSubmits...)
+			prioritizedElements = append(prioritizedElements, navigationLinks...)
+			prioritizedElements = append(prioritizedElements, otherElements...)
 		}
 
+		// Add ALL elements as suggestions with section headers
+		v.addSuggestionsWithHeaders(formFields, formSubmits, buttons, navigationLinks, otherElements)
+
 		v.showSuggestions = true
-		v.selectedIndex = 0
+		v.selectedIndex = v.findFirstSelectableIndex()
 		return
 	}
 
@@ -582,6 +741,8 @@ func (v *NavigationView) generateSuggestions() {
 				suggestion.Subtitle = "button"
 			case FormElement:
 				suggestion.Subtitle = "📝 form"
+			case FormFieldElement:
+				suggestion.Subtitle = "📝 input"
 			case ActionElement:
 				suggestion.Subtitle = "action"
 			}
@@ -618,6 +779,138 @@ func (v *NavigationView) generateSuggestions() {
 	}
 }
 
+// addSuggestionsWithHeaders adds suggestions organized by category with section headers
+func (v *NavigationView) addSuggestionsWithHeaders(formFields, formSubmits, buttons, navigationLinks, otherElements []NavigableElement) {
+	// Helper function to add section header
+	addHeader := func(title string) {
+		if len(v.suggestions) > 0 { // Don't add header as first item
+			v.suggestions = append(v.suggestions, Suggestion{
+				Type:       SectionHeaderSuggestion,
+				Text:       title,
+				Subtitle:   "",
+				MatchScore: 0.0,
+			})
+		}
+	}
+
+	// Helper function to add elements of a specific type
+	addElementsOfType := func(elements []NavigableElement, header string) {
+		if len(elements) > 0 {
+			addHeader(header)
+			for _, elem := range elements {
+				suggestion := Suggestion{
+					Type:       v.elementTypeToSuggestionType(elem.Type),
+					Text:       elem.Text,
+					Element:    &elem,
+					MatchScore: 0.8,
+				}
+
+				switch elem.Type {
+				case LinkElement:
+					suggestion.Subtitle = "→ " + elem.URL
+				case ButtonElement:
+					suggestion.Subtitle = "🎯 button"
+				case FormElement:
+					suggestion.Subtitle = "📝 form submit"
+				case FormFieldElement:
+					suggestion.Subtitle = "📝 input field"
+				case ActionElement:
+					suggestion.Subtitle = "⚡ action"
+				}
+
+				v.suggestions = append(v.suggestions, suggestion)
+			}
+		}
+	}
+
+	// Add sections in priority order based on context
+	if v.currentForm != nil {
+		// Form context: prioritize form actions
+		addElementsOfType(formFields, "📝 Form Fields")
+		addElementsOfType(formSubmits, "📝 Form Actions")
+		addElementsOfType(buttons, "🎯 Buttons")
+		addElementsOfType(navigationLinks, "🔗 Navigation")
+		addElementsOfType(otherElements, "⚡ Other Actions")
+	} else {
+		// Regular context: prioritize interactive elements
+		addElementsOfType(buttons, "🎯 Buttons")
+		addElementsOfType(formFields, "📝 Form Fields")
+		addElementsOfType(formSubmits, "📝 Form Actions")
+		addElementsOfType(navigationLinks, "🔗 Navigation")
+		addElementsOfType(otherElements, "⚡ Other Actions")
+	}
+}
+
+// findNextSelectableIndex finds the next selectable suggestion index (skipping headers)
+func (v *NavigationView) findNextSelectableIndex(currentIndex int, direction int) int {
+	if len(v.suggestions) == 0 {
+		return -1
+	}
+	
+	startIndex := currentIndex
+	for {
+		currentIndex += direction
+		
+		// Wrap around
+		if currentIndex >= len(v.suggestions) {
+			currentIndex = 0
+		} else if currentIndex < 0 {
+			currentIndex = len(v.suggestions) - 1
+		}
+		
+		// Found a selectable suggestion
+		if v.suggestions[currentIndex].Type != SectionHeaderSuggestion {
+			return currentIndex
+		}
+		
+		// Prevent infinite loop if only headers exist (shouldn't happen)
+		if currentIndex == startIndex {
+			return -1
+		}
+	}
+}
+
+// findFirstSelectableIndex finds the first selectable suggestion (not a header)
+func (v *NavigationView) findFirstSelectableIndex() int {
+	for i, suggestion := range v.suggestions {
+		if suggestion.Type != SectionHeaderSuggestion {
+			return i
+		}
+	}
+	return -1
+}
+
+// scrollToShowSelected ensures the selected item is visible in the viewport
+func (v *NavigationView) scrollToShowSelected() {
+	if v.selectedIndex < 0 || v.selectedIndex >= len(v.suggestions) {
+		return
+	}
+	
+	// Calculate current viewport bounds
+	viewportStart := v.suggestionScrollOffset
+	viewportEnd := viewportStart + v.maxVisibleSuggestions
+	
+	// If selected item is above the viewport, scroll up
+	if v.selectedIndex < viewportStart {
+		v.suggestionScrollOffset = v.selectedIndex
+	}
+	
+	// If selected item is below the viewport, scroll down
+	if v.selectedIndex >= viewportEnd {
+		v.suggestionScrollOffset = v.selectedIndex - v.maxVisibleSuggestions + 1
+	}
+	
+	// Ensure scroll offset stays within valid bounds
+	if v.suggestionScrollOffset < 0 {
+		v.suggestionScrollOffset = 0
+	}
+	
+	maxOffset := max(0, len(v.suggestions) - v.maxVisibleSuggestions)
+	if v.suggestionScrollOffset > maxOffset {
+		v.suggestionScrollOffset = maxOffset
+	}
+}
+
 // renderStatusBar renders the status bar
 func (v *NavigationView) renderStatusBar() string {
 	var parts []string
@@ -632,12 +925,12 @@ func (v *NavigationView) renderStatusBar() string {
 		parts = append(parts, fmt.Sprintf("%s", v.currentTitle))
 	}
 
-	if len(v.pageElements) > 0 {
-		parts = append(parts, fmt.Sprintf("[%d elements]", len(v.pageElements)))
-	}
-
 	if v.isAnalyzing {
 		parts = append(parts, "Analyzing...")
+	} else if len(v.pageElements) > 0 {
+		parts = append(parts, fmt.Sprintf("[%d elements]", len(v.pageElements)))
+	} else {
+		parts = append(parts, "[0 elements]")
 	}
 
 	status := strings.Join(parts, " | ")
@@ -671,32 +964,45 @@ func (v *NavigationView) renderSuggestions() string {
 		var line string
 		var style lipgloss.Style
 
-		// Truncate the main suggestion text
-		displayText := truncateText(suggestion.Text, 120)
-
-		if i == v.selectedIndex {
-			style = v.selectedStyle
-			line = fmt.Sprintf("┌─ %s", displayText)
+		// Handle section headers differently
+		if suggestion.Type == SectionHeaderSuggestion {
+			// Section headers use special styling
+			style = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("208")). // Orange color for headers
+				PaddingTop(1).
+				PaddingBottom(0)
+			
+			line = fmt.Sprintf("▶ %s", suggestion.Text)
+			// Headers are not selectable, so skip selection styling
 		} else {
-			style = v.suggestionStyle
-			line = fmt.Sprintf("├─ %s", displayText)
-		}
+			// Regular suggestions
+			displayText := truncateText(suggestion.Text, 120)
 
-		// Calculate padding needed to align subtitles
-		currentWidth := len(displayText) + 3                 // Add 3 for prefix
-		paddingNeeded := maxMainTextWidth - currentWidth + 5 // Add 5 for spacing
+			if i == v.selectedIndex {
+				style = v.selectedStyle
+				line = fmt.Sprintf("┌─ %s", displayText)
+			} else {
+				style = v.suggestionStyle
+				line = fmt.Sprintf("├─ %s", displayText)
+			}
 
-		// Add subtitle with proper alignment
-		if suggestion.Subtitle != "" {
-			subtitle := truncateText(suggestion.Subtitle, 40)
-			padding := strings.Repeat(" ", paddingNeeded)
-			line += fmt.Sprintf("%s%s", padding, subtitle)
-		}
+			// Calculate padding needed to align subtitles
+			currentWidth := len(displayText) + 3                 // Add 3 for prefix
+			paddingNeeded := maxMainTextWidth - currentWidth + 5 // Add 5 for spacing
 
-		// Add type indicator
-		switch suggestion.Type {
-		case CommandSuggestion:
-			line += " ⌘"
+			// Add subtitle with proper alignment
+			if suggestion.Subtitle != "" {
+				subtitle := truncateText(suggestion.Subtitle, 40)
+				padding := strings.Repeat(" ", paddingNeeded)
+				line += fmt.Sprintf("%s%s", padding, subtitle)
+			}
+
+			// Add type indicator
+			switch suggestion.Type {
+			case CommandSuggestion:
+				line += " ⌘"
+			}
 		}
 
 		lines = append(lines, style.Render(line))
@@ -704,6 +1010,142 @@ func (v *NavigationView) renderSuggestions() string {
 
 	return strings.Join(lines, "\n")
 }
+
+// calculateViewportDimensions calculates how many suggestions can fit in available space
+func (v *NavigationView) calculateViewportDimensions() {
+	// Calculate fixed header height
+	// Title: 1 line + 1 margin = 2
+	// Status: 1 line = 1
+	// History: variable (max 3 lines to keep header reasonable) + 1 margin
+	// Input: 1 line + 1 margin = 2
+	// Help: 1 line + 2 margins = 3
+	// Additional spacing: 2-3 lines
+	
+	fixedHeaderLines := 2 + 1 // Title + status
+	
+	// Add history (limit to 3 recent items to prevent header from being too tall)
+	historyLines := 0
+	if len(v.history) > 0 {
+		historyLines = min(3, len(v.history)) + 1 // +1 for spacing
+	}
+	
+	fixedHeaderLines += historyLines + 2 + 3 + 3 // input + spacing + help + margins
+	
+	// Calculate available lines for suggestions
+	availableHeight := v.height - fixedHeaderLines
+	if availableHeight < 5 {
+		availableHeight = 5 // Minimum viewport size
+	}
+	
+	v.maxVisibleSuggestions = availableHeight
+	v.visibleSuggestionCount = min(len(v.suggestions), v.maxVisibleSuggestions)
+	
+	// Ensure scroll offset is valid
+	if v.suggestionScrollOffset < 0 {
+		v.suggestionScrollOffset = 0
+	}
+	maxOffset := max(0, len(v.suggestions)-v.maxVisibleSuggestions)
+	if v.suggestionScrollOffset > maxOffset {
+		v.suggestionScrollOffset = maxOffset
+	}
+}
+
+// renderSuggestionsViewport renders only the visible portion of suggestions with scroll indicators
+func (v *NavigationView) renderSuggestionsViewport() string {
+	if len(v.suggestions) == 0 {
+		return v.subtitleStyle.Render("[Analyzing page for navigation options...]")
+	}
+	
+	// Calculate visible range
+	startIdx := v.suggestionScrollOffset
+	endIdx := min(startIdx+v.maxVisibleSuggestions, len(v.suggestions))
+	
+	if startIdx >= len(v.suggestions) {
+		startIdx = max(0, len(v.suggestions)-v.maxVisibleSuggestions)
+		endIdx = len(v.suggestions)
+		v.suggestionScrollOffset = startIdx
+	}
+	
+	var lines []string
+	
+	// Add "more above" indicator if scrolled down
+	if startIdx > 0 {
+		moreAbove := fmt.Sprintf("▲ %d more above", startIdx)
+		lines = append(lines, v.subtitleStyle.Render(moreAbove))
+	}
+	
+	// Render visible suggestions using the same logic as original renderSuggestions
+	visibleSuggestions := v.suggestions[startIdx:endIdx]
+	
+	// First pass: calculate the maximum width needed for alignment
+	maxMainTextWidth := 0
+	for _, suggestion := range visibleSuggestions {
+		if suggestion.Type != SectionHeaderSuggestion {
+			displayText := truncateText(suggestion.Text, 120)
+			mainTextWidth := len(displayText) + 3
+			if mainTextWidth > maxMainTextWidth {
+				maxMainTextWidth = mainTextWidth
+			}
+		}
+	}
+	
+	// Render each visible suggestion
+	for i, suggestion := range visibleSuggestions {
+		globalIndex := startIdx + i
+		var line string
+		var style lipgloss.Style
+		
+		// Handle section headers differently
+		if suggestion.Type == SectionHeaderSuggestion {
+			style = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("208")).
+				PaddingTop(1).
+				PaddingBottom(0)
+			
+			line = fmt.Sprintf("▶ %s", suggestion.Text)
+		} else {
+			displayText := truncateText(suggestion.Text, 120)
+			
+			if globalIndex == v.selectedIndex {
+				style = v.selectedStyle
+				line = fmt.Sprintf("┌─ %s", displayText)
+			} else {
+				style = v.suggestionStyle
+				line = fmt.Sprintf("├─ %s", displayText)
+			}
+			
+			// Calculate padding needed to align subtitles
+			currentWidth := len(displayText) + 3
+			paddingNeeded := maxMainTextWidth - currentWidth + 5
+			
+			// Add subtitle with proper alignment
+			if suggestion.Subtitle != "" {
+				subtitle := truncateText(suggestion.Subtitle, 40)
+				padding := strings.Repeat(" ", paddingNeeded)
+				line += fmt.Sprintf("%s%s", padding, subtitle)
+			}
+			
+			// Add type indicator
+			switch suggestion.Type {
+			case CommandSuggestion:
+				line += " ⌘"
+			}
+		}
+		
+		lines = append(lines, style.Render(line))
+	}
+	
+	// Add "more below" indicator if there are items below viewport
+	if endIdx < len(v.suggestions) {
+		moreBelow := fmt.Sprintf("▼ %d more below", len(v.suggestions)-endIdx)
+		lines = append(lines, v.subtitleStyle.Render(moreBelow))
+	}
+	
+	return strings.Join(lines, "\n")
+}
+
+// Helper functions are available from input_modal.go
 
 // Helper functions and message types will be added in the next part...
 
@@ -745,7 +1187,7 @@ func (v *NavigationView) executeSuggestion(suggestion Suggestion) tea.Cmd {
 				}
 			}
 
-		case LinkSuggestion, ActionSuggestion, FormSuggestion:
+		case LinkSuggestion, ActionSuggestion, FormSuggestion, FormFieldSuggestion:
 			if suggestion.Element != nil {
 				return v.executeElement(*suggestion.Element)()
 			}
@@ -834,8 +1276,19 @@ func (v *NavigationView) executeElement(element NavigableElement) tea.Cmd {
 				if err := v.chromeDPManager.Navigate(element.URL); err != nil {
 					return NavigationErrorMsg{Error: err}
 				}
+				
+				// Wait a moment for navigation to start
+				time.Sleep(200 * time.Millisecond)
+				
+				// Get the actual URL after navigation (handles redirects)
+				actualURL, _, err := v.chromeDPManager.GetPageInfo()
+				if err != nil {
+					// Fallback to requested URL if we can't get the actual URL
+					actualURL = element.URL
+				}
+				
 				return NavigationCompleteMsg{
-					URL:     element.URL,
+					URL:     actualURL,
 					Success: true,
 				}
 			}
@@ -874,6 +1327,23 @@ func (v *NavigationView) executeElement(element NavigableElement) tea.Cmd {
 					}
 				}
 			}
+
+		case "form_input":
+			// Handle form input using the input modal
+			return v.handleFormInput(element)()
+
+		case "form_submit":
+			// Submit the form directly
+			if v.formHandler != nil {
+				if err := v.formHandler.SubmitForm(); err != nil {
+					return NavigationErrorMsg{Error: err}
+				}
+				return NavigationCompleteMsg{
+					URL:     v.currentURL,
+					Success: true,
+				}
+			}
+			return NavigationErrorMsg{Error: fmt.Errorf("form handler not available")}
 
 		case "type":
 			// For form fields, focus and wait for user input
@@ -1067,6 +1537,8 @@ func (v *NavigationView) elementTypeToSuggestionType(elemType ElementType) Sugge
 		return ActionSuggestion
 	case FormElement:
 		return FormSuggestion
+	case FormFieldElement:
+		return FormFieldSuggestion
 	default:
 		return ActionSuggestion
 	}
@@ -1107,6 +1579,24 @@ func truncateText(text string, maxLen int) string {
 		return text
 	}
 	return text[:maxLen-3] + "..."
+}
+
+// countFormFields counts the number of form fields that will be added as elements
+func countFormFields(form *LoginForm) int {
+	count := 0
+	if form.EmailField != nil {
+		count++
+	}
+	if form.PasswordField != nil {
+		count++
+	}
+	if form.UsernameField != nil {
+		count++
+	}
+	if form.SubmitButton != nil && form.IsComplete {
+		count++
+	}
+	return count
 }
 
 // Helper methods for command handlers
@@ -1165,19 +1655,115 @@ func (v *NavigationView) reconnectChrome() error {
 }
 
 func (v *NavigationView) navigateToTarget(target string) error {
-	// First, collect all navigation links
-	var navigationLinks []NavigableElement
+	// Convert NavigableElements to NavigationElements for LLM
+	var llmElements []llm.NavigationElement
+	var clickableElements []NavigableElement
+	
+	for _, elem := range v.pageElements {
+		// Include all clickable elements, not just links
+		if elem.Type == LinkElement || elem.Type == ButtonElement || elem.Type == ActionElement {
+			clickableElements = append(clickableElements, elem)
+			
+			llmElements = append(llmElements, llm.NavigationElement{
+				Text:        elem.Text,
+				Selector:    elem.Selector,
+				URL:         elem.URL,
+				Type:        v.elementTypeToString(elem.Type),
+				Description: elem.Description,
+			})
+		}
+	}
+
+	if len(llmElements) == 0 {
+		// No clickable elements found, try URL navigation
+		if strings.HasPrefix(target, "http") || strings.HasPrefix(target, "/") || strings.Contains(target, ".") {
+			return v.navigateToURL(target)
+		}
+		return fmt.Errorf("no navigable elements found on page")
+	}
+
+	// Try LLM ranking if available
+	if v.llmClient != nil {
+		ctx := context.Background()
+		ranking, err := v.llmClient.RankNavigationElements(ctx, target, llmElements)
+		
+		if err == nil && len(ranking.Elements) > 0 {
+			// Try elements in ranked order using SmartClick
+			for _, rankedElem := range ranking.Elements {
+				if rankedElem.Confidence > 0.3 { // Only try elements with reasonable confidence
+					// Find the corresponding NavigableElement
+					var targetElement *NavigableElement
+					for _, elem := range clickableElements {
+						if elem.Text == rankedElem.Text && elem.Selector == rankedElem.Selector {
+							targetElement = &elem
+							break
+						}
+					}
+					
+					if targetElement != nil {
+						// Try SmartClick with the LLM-recommended strategy
+						success, err := v.trySmartClick(*targetElement, rankedElem)
+						if success {
+							elementText := truncateText(rankedElem.Text, 30)
+							v.addHistory(fmt.Sprintf("→ Successfully navigated via \"%s\"", elementText))
+							return nil
+						}
+						
+						// Log attempt but continue to next option
+						if err != nil {
+							log.Printf("SmartClick failed for %s: %v", rankedElem.Text, err)
+						}
+					}
+				}
+			}
+			
+			// If we tried LLM ranking but nothing worked, show the top suggestions
+			if len(ranking.Elements) > 0 {
+				topSuggestions := []string{}
+				for i, elem := range ranking.Elements {
+					if i >= 3 { break } // Show top 3
+					if elem.Confidence > 0.1 {
+						topSuggestions = append(topSuggestions, fmt.Sprintf("\"%s\" (%.0f%% match)", 
+							elem.Text, elem.Confidence*100))
+					}
+				}
+				if len(topSuggestions) > 0 {
+					return fmt.Errorf("could not navigate to \"%s\". Top matches were: %s", 
+						target, strings.Join(topSuggestions, ", "))
+				}
+			}
+		}
+	}
+
+	// Fallback to fuzzy matching if LLM unavailable or failed
+	return v.fallbackNavigateToTarget(target, clickableElements)
+}
+
+// trySmartClick attempts to click an element using SmartClick with LLM-suggested strategy
+func (v *NavigationView) trySmartClick(element NavigableElement, rankedElem llm.RankedNavigationElement) (bool, error) {
+	if v.chromeDPManager == nil {
+		return false, fmt.Errorf("Chrome not connected")
+	}
+
+	// For navigation links, prefer direct URL navigation if available
+	if element.Type == LinkElement && element.URL != "" {
+		if err := v.navigateToURL(element.URL); err == nil {
+			return true, nil
+		}
+	}
+
+	// Use SmartClick for all other cases or as fallback
+	return v.chromeDPManager.SmartClick(element.Selector, element.Text)
+}
+
+// fallbackNavigateToTarget provides the original fuzzy matching logic
+func (v *NavigationView) fallbackNavigateToTarget(target string, elements []NavigableElement) error {
 	var potentialMatches []NavigableElement
 
-	for _, elem := range v.pageElements {
-		if elem.Type == LinkElement && elem.URL != "" {
-			navigationLinks = append(navigationLinks, elem)
-
-			// Check for fuzzy matches
-			score := v.fuzzyMatch(target, elem.Text)
-			if score > 0.3 {
-				potentialMatches = append(potentialMatches, elem)
-			}
+	for _, elem := range elements {
+		score := v.fuzzyMatch(target, elem.Text)
+		if score > 0.3 {
+			potentialMatches = append(potentialMatches, elem)
 		}
 	}
 
@@ -1194,24 +1780,16 @@ func (v *NavigationView) navigateToTarget(target string) error {
 			}
 		}
 
-		// Add feedback about what we're navigating to
-		v.addHistory(fmt.Sprintf("→ Found match: \"%s\" (score: %.1f)", bestMatch.Text, bestScore))
-		return v.navigateToURL(bestMatch.URL)
-	}
-
-	// If no good matches found, show available navigation options
-	if len(navigationLinks) > 0 {
-		availableOptions := []string{}
-		for _, link := range navigationLinks[:min(5, len(navigationLinks))] {
-			if link.Text != "" {
-				availableOptions = append(availableOptions, "\""+link.Text+"\"")
-			}
+		// Try SmartClick on the best match
+		success, err := v.chromeDPManager.SmartClick(bestMatch.Selector, bestMatch.Text)
+		if success {
+			elementText := truncateText(bestMatch.Text, 30)
+			v.addHistory(fmt.Sprintf("→ Successfully navigated via \"%s\"", elementText))
+			return nil
 		}
-
-		if len(availableOptions) > 0 {
-			optionsStr := strings.Join(availableOptions, ", ")
-			v.addHistory(fmt.Sprintf("→ No match for \"%s\". Available options: %s", target, optionsStr))
-			return fmt.Errorf("no navigation match found for \"%s\". Available options: %s", target, optionsStr)
+		
+		if err != nil {
+			return fmt.Errorf("failed to click \"%s\": %w", bestMatch.Text, err)
 		}
 	}
 
@@ -1221,6 +1799,24 @@ func (v *NavigationView) navigateToTarget(target string) error {
 	}
 
 	return fmt.Errorf("no navigation element found matching: %s", target)
+}
+
+// elementTypeToString converts ElementType to string for LLM
+func (v *NavigationView) elementTypeToString(elemType ElementType) string {
+	switch elemType {
+	case LinkElement:
+		return "link"
+	case ButtonElement:
+		return "button" 
+	case FormElement:
+		return "form"
+	case ActionElement:
+		return "action"
+	case FormFieldElement:
+		return "input"
+	default:
+		return "unknown"
+	}
 }
 
 func (v *NavigationView) clickTarget(target string) error {
@@ -1243,15 +1839,313 @@ func (v *NavigationView) clickTarget(target string) error {
 	return fmt.Errorf("no clickable element found matching: %s", target)
 }
 
-// Helper function to get minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
 
 // Additional message types
 type NavigationErrorMsg struct {
 	Error error
+}
+
+type FormDetectedMsg struct {
+	Form *LoginForm
+}
+
+type FormFieldReadyMsg struct {
+	Field *FormField
+}
+
+type AuthenticationCompleteMsg struct {
+	Success bool
+	User    *config.TestUser
+	Error   error
+}
+
+type FormInputModalReadyMsg struct {
+	Field *FormField
+}
+
+// addFormFieldsToElements adds form field actions to the elements list
+func (v *NavigationView) addFormFieldsToElements(elements *[]NavigableElement, form *LoginForm) {
+	if form == nil {
+		return
+	}
+
+	// Add email field action
+	if form.EmailField != nil {
+		*elements = append(*elements, NavigableElement{
+			Type:        FormFieldElement,
+			Text:        fmt.Sprintf("Enter %s", form.EmailField.Label),
+			Description: fmt.Sprintf("Fill in the %s field", form.EmailField.Label),
+			Selector:    form.EmailField.Selector,
+			Method:      "form_input",
+		})
+	}
+
+	// Add password field action
+	if form.PasswordField != nil {
+		*elements = append(*elements, NavigableElement{
+			Type:        FormFieldElement,
+			Text:        fmt.Sprintf("Enter %s", form.PasswordField.Label),
+			Description: fmt.Sprintf("Fill in the %s field", form.PasswordField.Label),
+			Selector:    form.PasswordField.Selector,
+			Method:      "form_input",
+		})
+	}
+
+	// Add username field action
+	if form.UsernameField != nil {
+		*elements = append(*elements, NavigableElement{
+			Type:        FormFieldElement,
+			Text:        fmt.Sprintf("Enter %s", form.UsernameField.Label),
+			Description: fmt.Sprintf("Fill in the %s field", form.UsernameField.Label),
+			Selector:    form.UsernameField.Selector,
+			Method:      "form_input",
+		})
+	}
+
+	// Add submit form action
+	if form.SubmitButton != nil && form.IsComplete {
+		*elements = append(*elements, NavigableElement{
+			Type:        FormElement,
+			Text:        "Submit Form",
+			Description: "Submit the login form",
+			Selector:    form.SubmitButton.Selector,
+			Method:      "form_submit",
+		})
+	}
+}
+
+// handleModalComplete handles completion of the input modal
+func (v *NavigationView) handleModalComplete() (tea.Model, tea.Cmd) {
+	if v.inputModal == nil || v.pendingField == nil {
+		return v, nil
+	}
+
+	result := v.inputModal.GetResult()
+	
+	if result.Cancelled {
+		v.awaitingInput = false
+		v.pendingField = nil
+		return v, nil
+	}
+
+	// Fill the form field
+	return v, v.fillFormField(result)
+}
+
+// fillFormField fills a form field with the provided value
+func (v *NavigationView) fillFormField(result InputResult) tea.Cmd {
+	return func() tea.Msg {
+		if v.formHandler == nil || v.pendingField == nil {
+			return NavigationErrorMsg{Error: fmt.Errorf("form handler or field not available")}
+		}
+
+		// Fill the field
+		if err := v.formHandler.FillField(v.pendingField, result.Value); err != nil {
+			return NavigationErrorMsg{Error: fmt.Errorf("failed to fill field: %w", err)}
+		}
+
+		// If user selected a saved user, save their last used time
+		if result.SelectedUser != nil && v.authConfig != nil {
+			domain := v.formHandler.GetDomain()
+			v.authConfig.UpdateUserLastUsed(domain, result.SelectedUser.Email)
+		}
+
+		// If this was a new entry, potentially save it
+		if result.NewEntry && v.pendingField.Type == EmailField {
+			// TODO: Implement saving new user after collecting all required fields
+		}
+
+		// Reset modal state
+		v.awaitingInput = false
+		v.pendingField = nil
+
+		// Check if we can submit the form now
+		if v.canSubmitForm() {
+			return v.submitForm()()
+		}
+
+		// Continue with form filling
+		v.addHistory(fmt.Sprintf("→ Filled field: %s", v.pendingField.Label))
+		return NavigationCompleteMsg{
+			URL:     v.currentURL,
+			Success: true,
+		}
+	}
+}
+
+// canSubmitForm checks if all required form fields are filled
+func (v *NavigationView) canSubmitForm() bool {
+	if v.currentForm == nil {
+		return false
+	}
+
+	// For magic link forms (email only), can submit after email is filled
+	if v.currentForm.IsMagicLink {
+		return v.currentForm.EmailField != nil && v.currentForm.EmailField.Value != ""
+	}
+
+	// For regular forms, need both email/username and password
+	hasIdentifier := (v.currentForm.EmailField != nil && v.currentForm.EmailField.Value != "") ||
+					  (v.currentForm.UsernameField != nil && v.currentForm.UsernameField.Value != "")
+	hasPassword := v.currentForm.PasswordField != nil && v.currentForm.PasswordField.Value != ""
+
+	return hasIdentifier && hasPassword
+}
+
+// submitForm submits the current form
+func (v *NavigationView) submitForm() tea.Cmd {
+	return func() tea.Msg {
+		if v.formHandler == nil {
+			return NavigationErrorMsg{Error: fmt.Errorf("form handler not available")}
+		}
+
+		v.addHistory("→ Submitting form...")
+		
+		// Submit the form
+		if err := v.formHandler.SubmitForm(); err != nil {
+			return NavigationErrorMsg{Error: fmt.Errorf("failed to submit form: %w", err)}
+		}
+
+		// Wait for page changes
+		result, err := v.formHandler.WaitForPageChange(10 * time.Second)
+		if err != nil {
+			return NavigationErrorMsg{Error: fmt.Errorf("failed to wait for page change: %w", err)}
+		}
+
+		// Handle the result
+		if result.MagicLinkSent {
+			v.addHistory("📧 " + result.Message)
+			// Trigger email checking for magic link
+			return v.handleMagicLinkSent()()
+		}
+
+		if result.NavigationOccurred {
+			v.addHistory("→ " + result.Message)
+			return NavigationCompleteMsg{
+				URL:     result.FinalURL,
+				Success: true,
+			}
+		}
+
+		if result.ErrorDetected {
+			v.addHistory("❌ " + result.Message)
+			return NavigationErrorMsg{Error: fmt.Errorf(result.Message)}
+		}
+
+		return NavigationCompleteMsg{
+			URL:     result.FinalURL,
+			Success: true,
+		}
+	}
+}
+
+// handleFormInput handles form input by showing the input modal
+func (v *NavigationView) handleFormInput(element NavigableElement) tea.Cmd {
+	return func() tea.Msg {
+		if v.currentForm == nil {
+			return NavigationErrorMsg{Error: fmt.Errorf("no form detected")}
+		}
+
+		// Find the corresponding form field
+		var field *FormField
+		if v.currentForm.EmailField != nil && v.currentForm.EmailField.Selector == element.Selector {
+			field = v.currentForm.EmailField
+		} else if v.currentForm.PasswordField != nil && v.currentForm.PasswordField.Selector == element.Selector {
+			field = v.currentForm.PasswordField
+		} else if v.currentForm.UsernameField != nil && v.currentForm.UsernameField.Selector == element.Selector {
+			field = v.currentForm.UsernameField
+		}
+
+		if field == nil {
+			return NavigationErrorMsg{Error: fmt.Errorf("form field not found")}
+		}
+
+		// Get saved users for this domain
+		var savedUsers []config.TestUser
+		if v.authConfig != nil {
+			domain := v.formHandler.GetDomain()
+			savedUsers, _ = v.authConfig.GetRecentUsersForDomain(domain, 5)
+		}
+
+		// Create and show input modal
+		v.inputModal = NewInputModal(field.Type, field.Label, field.Placeholder, v.formHandler.GetDomain(), savedUsers)
+		v.inputModal.Show()
+		v.awaitingInput = true
+		v.pendingField = field
+
+		v.addHistory(fmt.Sprintf("→ Opening input for: %s", field.Label))
+		
+		return FormInputModalReadyMsg{
+			Field: field,
+		}
+	}
+}
+
+// handleMagicLinkSent handles magic link detection and email checking
+func (v *NavigationView) handleMagicLinkSent() tea.Cmd {
+	return func() tea.Msg {
+		// Check if we have email checking capability
+		if v.authFlow == nil {
+			v.addHistory("⚠️ Email checking not configured")
+			return NavigationCompleteMsg{
+				URL:     v.currentURL,
+				Success: true,
+			}
+		}
+
+		// Get the current user's email from the form
+		var userEmail string
+		if v.currentForm != nil && v.currentForm.EmailField != nil {
+			userEmail = v.currentForm.EmailField.Value
+		}
+
+		if userEmail == "" {
+			v.addHistory("⚠️ No email address found for magic link checking")
+			return NavigationCompleteMsg{
+				URL:     v.currentURL,
+				Success: true,
+			}
+		}
+
+		v.addHistory("📧 Checking email for magic link...")
+
+		// Create a test user for the magic link authentication
+		testUser := &config.TestUser{
+			Name:     "Magic Link User",
+			Email:    userEmail,
+			AuthType: "magic_link",
+			AuthConfig: &config.TestUserAuthConfig{
+				EmailCheckEnabled: true,
+				EmailTimeout:      30,
+			},
+		}
+
+		// Use the auth flow manager to authenticate with email support
+		authResult := v.authFlow.AuthenticateWithEmailSupport(testUser)
+
+		if authResult.Success && authResult.RedirectURL != "" {
+			v.addHistory(fmt.Sprintf("✅ Found magic link: %s", authResult.RedirectURL[:50]+"..."))
+			
+			// Navigate to the magic link
+			if err := v.chromeDPManager.Navigate(authResult.RedirectURL); err != nil {
+				v.addHistory(fmt.Sprintf("❌ Failed to navigate to magic link: %v", err))
+				return NavigationErrorMsg{Error: err}
+			}
+
+			// Save this user for future use
+			if v.authConfig != nil {
+				domain := v.formHandler.GetDomain()
+				v.authConfig.SaveMagicLinkUserForDomain(domain, userEmail, testUser.Name)
+			}
+
+			v.addHistory("🎉 Successfully authenticated with magic link")
+			return NavigationCompleteMsg{
+				URL:     authResult.RedirectURL,
+				Success: true,
+			}
+		} else {
+			v.addHistory(fmt.Sprintf("❌ Magic link not found: %s", authResult.Message))
+			return NavigationErrorMsg{Error: authResult.Error}
+		}
+	}
 }

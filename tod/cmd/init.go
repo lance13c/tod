@@ -398,10 +398,10 @@ func getStringOrDefault(value, defaultValue string) string {
 	return value
 }
 
-// launchTUIWithFlowDiscovery launches the TUI directly into Chrome Test Discovery mode
+// launchTUIWithFlowDiscovery launches the TUI directly into Navigation mode
 func launchTUIWithTodAdventure(todConfig *config.Config) error {
-	// Create the main model with Tod Adventure Mode as initial view
-	model := ui.NewModelWithInitialView(todConfig, ui.ViewChatAdventure)
+	// Create the main model with Navigation Mode as initial view
+	model := ui.NewModelWithInitialView(todConfig, ui.ViewNavigation)
 
 	// Create the program with some options
 	program := tea.NewProgram(

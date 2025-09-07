@@ -29,6 +29,7 @@ type Client interface {
 	InterpretCommand(ctx context.Context, command string, availableActions []types.CodeAction) (*CommandInterpretation, error)
 	InterpretCommandWithContext(ctx context.Context, command string, availableActions []types.CodeAction, conversation *ConversationContext) (*CommandInterpretation, error)
 	AnalyzeScreenshot(ctx context.Context, screenshot []byte, prompt string) (*ScreenshotAnalysis, error)
+	RankNavigationElements(ctx context.Context, userInput string, elements []NavigationElement) (*NavigationRanking, error)
 	GetLastUsage() *UsageStats
 	EstimateCost(operation string, inputSize int) *UsageStats
 }
@@ -375,3 +376,61 @@ Focus on:
 
 If the framework doesn't exist or you're not confident, set confidence < 0.5 and explain in notes.
 Be specific and practical - this will be used to automatically configure the framework.`
+
+// Navigation ranking types
+
+// NavigationElement represents a navigable element for LLM ranking
+type NavigationElement struct {
+	Text        string `json:"text"`
+	Selector    string `json:"selector"`
+	URL         string `json:"url,omitempty"`
+	Type        string `json:"type"` // "link", "button", "form", etc.
+	Description string `json:"description,omitempty"`
+}
+
+// RankedNavigationElement represents an element with LLM-assigned ranking
+type RankedNavigationElement struct {
+	NavigationElement
+	Confidence float64 `json:"confidence"`
+	Reasoning  string  `json:"reasoning,omitempty"`
+	Strategy   string  `json:"strategy"` // "standard", "javascript", "event", "focus_enter", "text"
+}
+
+// NavigationRanking represents LLM ranking results
+type NavigationRanking struct {
+	Elements []RankedNavigationElement `json:"elements"`
+	Usage    *UsageStats               `json:"usage,omitempty"`
+}
+
+// Navigation ranking prompt
+const navigationRankingPrompt = `You are helping a user navigate a website. The user wants to: "%s"
+
+Available navigation elements:
+%s
+
+Your task is to rank these elements by how likely they are to fulfill the user's intent. For each element, consider:
+1. Text similarity to user intent
+2. Common web patterns (e.g., "Sign In" for signin)
+3. Element type and context
+
+Also suggest the best clicking strategy for each element:
+- "standard": Regular CSS selector click (default)
+- "javascript": JavaScript element.click() for React/Vue components
+- "event": Dispatch click event for complex event handlers
+- "focus_enter": Focus element and press Enter
+- "text": Find element by text content if selector fails
+
+Return JSON array of ranked elements (highest confidence first):
+[
+  {
+    "text": "element text",
+    "selector": "css selector",
+    "url": "url if applicable",
+    "type": "element type",
+    "confidence": 0.95,
+    "reasoning": "why this element matches user intent",
+    "strategy": "recommended clicking strategy"
+  }
+]
+
+Only include elements with confidence > 0.1. Sort by confidence descending.`

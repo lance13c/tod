@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/chromedp/chromedp"
@@ -214,6 +215,127 @@ func (m *ChromeDPManager) Click(selector string) error {
 	)
 }
 
+// SmartClick attempts to click an element using multiple strategies and detects success
+func (m *ChromeDPManager) SmartClick(selector string, text string) (bool, error) {
+	// Get initial state for change detection
+	initialURL, _, err := m.GetPageInfo()
+	if err != nil {
+		return false, fmt.Errorf("failed to get initial page info: %w", err)
+	}
+
+	// Strategy 1: Standard chromedp click
+	log.Printf("SmartClick: Trying standard click on selector: %s", selector)
+	if err := m.Click(selector); err == nil {
+		if changed := m.detectPageChange(initialURL, 500*time.Millisecond); changed {
+			log.Printf("SmartClick: Standard click successful for: %s", text)
+			return true, nil
+		}
+	}
+
+	// Strategy 2: JavaScript click
+	log.Printf("SmartClick: Trying JavaScript click on selector: %s", selector)
+	jsScript := fmt.Sprintf(`
+		const element = document.querySelector('%s');
+		if (element) {
+			element.click();
+			true;
+		} else {
+			false;
+		}
+	`, selector)
+	
+	var jsResult bool
+	if err := m.ExecuteScript(jsScript, &jsResult); err == nil && jsResult {
+		if changed := m.detectPageChange(initialURL, 500*time.Millisecond); changed {
+			log.Printf("SmartClick: JavaScript click successful for: %s", text)
+			return true, nil
+		}
+	}
+
+	// Strategy 3: Dispatch click event
+	log.Printf("SmartClick: Trying event dispatch on selector: %s", selector)
+	eventScript := fmt.Sprintf(`
+		const element = document.querySelector('%s');
+		if (element) {
+			element.dispatchEvent(new MouseEvent('click', {
+				view: window,
+				bubbles: true,
+				cancelable: true
+			}));
+			true;
+		} else {
+			false;
+		}
+	`, selector)
+	
+	if err := m.ExecuteScript(eventScript, &jsResult); err == nil && jsResult {
+		if changed := m.detectPageChange(initialURL, 500*time.Millisecond); changed {
+			log.Printf("SmartClick: Event dispatch successful for: %s", text)
+			return true, nil
+		}
+	}
+
+	// Strategy 4: Focus and Enter key (for button-like elements)
+	log.Printf("SmartClick: Trying focus+enter on selector: %s", selector)
+	ctx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
+	defer cancel()
+
+	err = chromedp.Run(ctx,
+		chromedp.Focus(selector, chromedp.ByQuery),
+		chromedp.KeyEvent("`Enter`"),
+	)
+	
+	if err == nil {
+		if changed := m.detectPageChange(initialURL, 500*time.Millisecond); changed {
+			log.Printf("SmartClick: Focus+enter successful for: %s", text)
+			return true, nil
+		}
+	}
+
+	// Strategy 5: Try finding by text content if selector failed
+	if text != "" {
+		log.Printf("SmartClick: Trying text-based click for: %s", text)
+		textScript := fmt.Sprintf(`
+			const elements = document.querySelectorAll('a, button, [role="button"]');
+			for (let el of elements) {
+				if (el.textContent && el.textContent.trim().toLowerCase().includes('%s')) {
+					el.click();
+					return true;
+				}
+			}
+			return false;
+		`, strings.ToLower(text))
+		
+		if err := m.ExecuteScript(textScript, &jsResult); err == nil && jsResult {
+			if changed := m.detectPageChange(initialURL, 500*time.Millisecond); changed {
+				log.Printf("SmartClick: Text-based click successful for: %s", text)
+				return true, nil
+			}
+		}
+	}
+
+	log.Printf("SmartClick: All strategies failed for: %s (selector: %s)", text, selector)
+	return false, nil
+}
+
+// detectPageChange checks if the page changed after an action
+func (m *ChromeDPManager) detectPageChange(initialURL string, waitTime time.Duration) bool {
+	time.Sleep(waitTime)
+	
+	currentURL, _, err := m.GetPageInfo()
+	if err != nil {
+		return false
+	}
+	
+	// URL change is the most reliable indicator
+	if currentURL != initialURL {
+		return true
+	}
+	
+	// TODO: Could also check for DOM changes, loading states, etc.
+	return false
+}
+
 // SendKeys sends keys to an element
 func (m *ChromeDPManager) SendKeys(selector string, text string) error {
 	ctx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
@@ -222,6 +344,280 @@ func (m *ChromeDPManager) SendKeys(selector string, text string) error {
 	return chromedp.Run(ctx,
 		chromedp.SendKeys(selector, text, chromedp.ByQuery),
 	)
+}
+
+// FillFormField fills a form field with enhanced error handling and validation
+func (m *ChromeDPManager) FillFormField(selector, value string) error {
+	ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
+	defer cancel()
+
+	return chromedp.Run(ctx,
+		// First wait for element to be visible
+		chromedp.WaitVisible(selector, chromedp.ByQuery),
+		// Focus the element
+		chromedp.Focus(selector, chromedp.ByQuery),
+		// Clear any existing value
+		chromedp.Clear(selector, chromedp.ByQuery),
+		// Send the new value
+		chromedp.SendKeys(selector, value, chromedp.ByQuery),
+		// Trigger events to ensure the form recognizes the input
+		chromedp.Evaluate(fmt.Sprintf(`
+			const element = document.querySelector('%s');
+			if (element) {
+				element.dispatchEvent(new Event('input', { bubbles: true }));
+				element.dispatchEvent(new Event('change', { bubbles: true }));
+			}
+		`, selector), nil),
+	)
+}
+
+// GetFormElements extracts form elements with enhanced detection
+func (m *ChromeDPManager) GetFormElements() ([]FormElementInfo, error) {
+	ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
+	defer cancel()
+
+	script := `
+		(() => {
+			const forms = [];
+			
+			// Find all forms on the page
+			document.querySelectorAll('form').forEach(form => {
+				const formInfo = {
+					selector: '',
+					action: form.action || '',
+					method: form.method || 'GET',
+					fields: []
+				};
+				
+				// Generate selector for form
+				if (form.id) {
+					formInfo.selector = '#' + form.id;
+				} else if (form.className) {
+					const classes = form.className.split(' ').filter(c => c && !c.includes('css-'));
+					if (classes.length > 0) {
+						formInfo.selector = '.' + classes[0];
+					}
+				} else {
+					formInfo.selector = 'form';
+				}
+				
+				// Find form fields
+				const inputs = form.querySelectorAll('input, textarea, select');
+				inputs.forEach(input => {
+					if (input.type === 'hidden') return;
+					if (input.style.display === 'none') return;
+					if (input.offsetParent === null) return;
+					
+					const field = {
+						type: input.type || input.tagName.toLowerCase(),
+						name: input.name || '',
+						placeholder: input.placeholder || '',
+						required: input.required || false,
+						value: input.value || '',
+						selector: '',
+						label: ''
+					};
+					
+					// Generate selector
+					if (input.id) {
+						field.selector = '#' + input.id;
+					} else if (input.name) {
+						field.selector = 'input[name="' + input.name + '"]';
+					} else if (input.className) {
+						const classes = input.className.split(' ').filter(c => c && !c.includes('css-'));
+						if (classes.length > 0) {
+							field.selector = '.' + classes[0];
+						}
+					}
+					
+					// Find label
+					const labels = form.querySelectorAll('label');
+					for (let label of labels) {
+						if (label.getAttribute('for') === input.id || 
+							label.contains(input)) {
+							field.label = label.textContent.trim();
+							break;
+						}
+					}
+					
+					formInfo.fields.push(field);
+				});
+				
+				// Find submit buttons
+				const submitButtons = form.querySelectorAll('button[type="submit"], input[type="submit"], button:not([type])');
+				submitButtons.forEach(button => {
+					if (button.style.display === 'none') return;
+					if (button.offsetParent === null) return;
+					
+					const field = {
+						type: 'submit',
+						name: button.name || '',
+						value: button.value || button.textContent || 'Submit',
+						selector: '',
+						label: button.textContent || button.value || 'Submit'
+					};
+					
+					if (button.id) {
+						field.selector = '#' + button.id;
+					} else if (button.name) {
+						field.selector = 'button[name="' + button.name + '"]';
+					} else {
+						field.selector = 'button[type="submit"]';
+					}
+					
+					formInfo.fields.push(field);
+				});
+				
+				forms.push(formInfo);
+			});
+			
+			return forms;
+		})()
+	`
+
+	var jsElements []map[string]interface{}
+	if err := chromedp.Run(ctx, chromedp.Evaluate(script, &jsElements)); err != nil {
+		return nil, err
+	}
+
+	var forms []FormElementInfo
+	for _, jsForm := range jsElements {
+		form := FormElementInfo{
+			Selector: getStringValue(jsForm["selector"]),
+			Action:   getStringValue(jsForm["action"]),
+			Method:   getStringValue(jsForm["method"]),
+		}
+
+		// Parse fields
+		if fieldsData, ok := jsForm["fields"].([]interface{}); ok {
+			for _, fieldData := range fieldsData {
+				if fieldMap, ok := fieldData.(map[string]interface{}); ok {
+					field := FormFieldInfo{
+						Type:        getStringValue(fieldMap["type"]),
+						Name:        getStringValue(fieldMap["name"]),
+						Placeholder: getStringValue(fieldMap["placeholder"]),
+						Value:       getStringValue(fieldMap["value"]),
+						Selector:    getStringValue(fieldMap["selector"]),
+						Label:       getStringValue(fieldMap["label"]),
+						Required:    getBoolValue(fieldMap["required"]),
+					}
+					form.Fields = append(form.Fields, field)
+				}
+			}
+		}
+
+		forms = append(forms, form)
+	}
+
+	return forms, nil
+}
+
+// CheckForPageChanges monitors for page changes after an action
+func (m *ChromeDPManager) CheckForPageChanges(initialURL string, timeout time.Duration) (*PageChangeInfo, error) {
+	changes := m.PollForChanges(timeout, 200*time.Millisecond, 50*time.Millisecond)
+	
+	info := &PageChangeInfo{
+		InitialURL: initialURL,
+		Changed:    false,
+	}
+
+	for change := range changes {
+		// Get current URL
+		currentURL, title, err := m.GetPageInfo()
+		if err == nil {
+			info.FinalURL = currentURL
+			info.FinalTitle = title
+			
+			if currentURL != initialURL {
+				info.Changed = true
+				info.URLChanged = true
+				break
+			}
+		}
+
+		// Check for specific content changes indicating success/failure
+		htmlLower := strings.ToLower(change.HTML)
+		
+		// Check for magic link messages
+		magicLinkPhrases := []string{
+			"magic link sent", "check your email", "email sent", 
+			"sign in link sent", "we sent you", "check your inbox",
+		}
+		for _, phrase := range magicLinkPhrases {
+			if strings.Contains(htmlLower, phrase) {
+				info.Changed = true
+				info.ContentChanged = true
+				info.MagicLinkDetected = true
+				info.Message = "Magic link sent"
+				return info, nil
+			}
+		}
+
+		// Check for error messages
+		errorPhrases := []string{
+			"error", "invalid", "incorrect", "failed", "wrong",
+			"unauthorized", "access denied", "login failed",
+		}
+		for _, phrase := range errorPhrases {
+			if strings.Contains(htmlLower, phrase) {
+				info.Changed = true
+				info.ContentChanged = true
+				info.ErrorDetected = true
+				info.Message = "Error detected"
+				return info, nil
+			}
+		}
+
+		// Check for success indicators
+		successPhrases := []string{
+			"welcome", "dashboard", "logged in", "signed in",
+			"authentication successful", "login successful",
+		}
+		for _, phrase := range successPhrases {
+			if strings.Contains(htmlLower, phrase) {
+				info.Changed = true
+				info.ContentChanged = true
+				info.SuccessDetected = true
+				info.Message = "Login successful"
+				return info, nil
+			}
+		}
+	}
+
+	return info, nil
+}
+
+// FormElementInfo represents information about a form
+type FormElementInfo struct {
+	Selector string
+	Action   string
+	Method   string
+	Fields   []FormFieldInfo
+}
+
+// FormFieldInfo represents information about a form field
+type FormFieldInfo struct {
+	Type        string
+	Name        string
+	Placeholder string
+	Value       string
+	Selector    string
+	Label       string
+	Required    bool
+}
+
+// PageChangeInfo represents information about page changes
+type PageChangeInfo struct {
+	InitialURL        string
+	FinalURL          string
+	FinalTitle        string
+	Changed           bool
+	URLChanged        bool
+	ContentChanged    bool
+	MagicLinkDetected bool
+	ErrorDetected     bool
+	SuccessDetected   bool
+	Message           string
 }
 
 // Screenshot takes a screenshot
@@ -244,6 +640,43 @@ func (m *ChromeDPManager) ExecuteScript(script string, result interface{}) error
 	return chromedp.Run(ctx,
 		chromedp.Evaluate(script, result),
 	)
+}
+
+// WaitForPageLoad waits for the page to be fully loaded and interactive
+func (m *ChromeDPManager) WaitForPageLoad(timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(m.ctx, timeout)
+	defer cancel()
+
+	// Wait for the document to be ready
+	script := `
+		(() => {
+			if (document.readyState === 'complete') return true;
+			if (document.readyState === 'interactive') return true;
+			return false;
+		})()
+	`
+
+	// Poll until page is ready
+	for {
+		var ready bool
+		if err := chromedp.Run(ctx, chromedp.Evaluate(script, &ready)); err != nil {
+			return fmt.Errorf("failed to check page readiness: %w", err)
+		}
+
+		if ready {
+			// Add a small additional delay to ensure elements are rendered
+			time.Sleep(300 * time.Millisecond)
+			return nil
+		}
+
+		// Check if context is done
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for page to load")
+		default:
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
 }
 
 // ExtractInteractiveElements extracts interactive elements from the page
