@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/chromedp/chromedp"
 	"github.com/ciciliostudio/tod/internal/browser"
 	"github.com/ciciliostudio/tod/internal/config"
 	"github.com/ciciliostudio/tod/internal/llm"
@@ -647,7 +648,7 @@ func (v *NavigationView) generateSuggestions() {
 	if input == "" {
 		// Add common commands first
 		commands := []Command{
-			{Display: "go back", Description: "Navigate back in history"},
+			{Display: "go back", Description: "Navigate back in browser history"},
 			{Display: "go to home", Description: "Navigate to homepage"},
 			{Display: "refresh", Description: "Refresh current page"},
 		}
@@ -1383,19 +1384,19 @@ func (v *NavigationView) matchCommand(input string) *Command {
 			Display:     "go to home",
 			Description: "Navigate to homepage",
 			Handler: func(v *NavigationView) error {
-				return v.navigateToURL(v.configuredURL)
+				return v.goHome()
 			},
 		},
 		{
 			Display:     "go back",
-			Description: "Navigate back in history",
+			Description: "Navigate back in browser history",
 			Handler: func(v *NavigationView) error {
 				return v.goBack()
 			},
 		},
 		{
 			Display:     "refresh",
-			Description: "Refresh current page analysis",
+			Description: "Refresh current page",
 			Handler: func(v *NavigationView) error {
 				return v.refreshPage()
 			},
@@ -1631,18 +1632,65 @@ func (v *NavigationView) navigateToURL(url string) error {
 }
 
 func (v *NavigationView) goBack() error {
-	if v.historyIndex > 0 {
-		v.historyIndex--
-		return v.navigateToURL(v.navigationHistory[v.historyIndex])
+	if v.chromeDPManager == nil {
+		return fmt.Errorf("browser not connected")
 	}
-	return fmt.Errorf("no back history available")
+	
+	// Use chromedp's NavigateBack action
+	ctx := v.chromeDPManager.GetContext()
+	if err := chromedp.Run(ctx, chromedp.NavigateBack()); err != nil {
+		return fmt.Errorf("failed to navigate back: %w", err)
+	}
+	
+	// Update current URL after navigation
+	url, _, err := v.chromeDPManager.GetPageInfo()
+	if err == nil {
+		v.currentURL = url
+		v.addHistory(fmt.Sprintf("⬅️ Navigated back to: %s", url))
+	}
+	
+	// Trigger page analysis for the new page
+	go v.analyzeCurrentPage()
+	
+	return nil
 }
 
 func (v *NavigationView) refreshPage() error {
-	if v.currentURL != "" {
-		return v.navigateToURL(v.currentURL)
+	if v.chromeDPManager == nil {
+		return fmt.Errorf("browser not connected")
 	}
-	return fmt.Errorf("no current page to refresh")
+	
+	// Use chromedp's Reload action
+	ctx := v.chromeDPManager.GetContext()
+	if err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+		return fmt.Errorf("failed to refresh page: %w", err)
+	}
+	
+	v.addHistory("🔄 Page refreshed")
+	
+	// Trigger page analysis after refresh
+	go v.analyzeCurrentPage()
+	
+	return nil
+}
+
+func (v *NavigationView) goHome() error {
+	if v.chromeDPManager == nil {
+		return fmt.Errorf("browser not connected")
+	}
+	
+	// Navigate to the configured base URL
+	if err := v.chromeDPManager.Navigate(v.configuredURL); err != nil {
+		return fmt.Errorf("failed to navigate home: %w", err)
+	}
+	
+	v.currentURL = v.configuredURL
+	v.addHistory(fmt.Sprintf("🏠 Navigated home to: %s", v.configuredURL))
+	
+	// Trigger page analysis for the home page
+	go v.analyzeCurrentPage()
+	
+	return nil
 }
 
 func (v *NavigationView) reconnectChrome() error {
@@ -2144,6 +2192,9 @@ func (v *NavigationView) handleMagicLinkSent() tea.Cmd {
 			},
 		}
 
+		// Create a channel to stop the update goroutine
+		stopUpdates := make(chan struct{})
+		
 		// Start periodic update messages in a goroutine
 		go func() {
 			ticker := time.NewTicker(5 * time.Second)
@@ -2155,6 +2206,9 @@ func (v *NavigationView) handleMagicLinkSent() tea.Cmd {
 			
 			for {
 				select {
+				case <-stopUpdates:
+					// Stop immediately when magic link is found
+					return
 				case <-ticker.C:
 					attempts++
 					elapsed := time.Since(startTime)
@@ -2177,8 +2231,12 @@ func (v *NavigationView) handleMagicLinkSent() tea.Cmd {
 			2*time.Minute,  // Max timeout of 2 minutes
 		)
 
+		// Stop the update goroutine as soon as we get a result
+		close(stopUpdates)
+
 		if authResult.Success && authResult.RedirectURL != "" {
 			v.addHistory(fmt.Sprintf("✅ Found magic link: %s", authResult.RedirectURL[:50]+"..."))
+			v.addHistory("🔗 Following magic link...")
 			
 			// Navigate to the magic link
 			if err := v.chromeDPManager.Navigate(authResult.RedirectURL); err != nil {

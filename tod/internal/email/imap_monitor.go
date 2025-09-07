@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"regexp"
 	"strings"
@@ -175,8 +176,24 @@ func (m *IMAPMonitor) Connect() error {
 		return fmt.Errorf("failed to select INBOX: %w", err)
 	}
 	
-	// Get the latest message ID to start monitoring from
-	m.updateLastMessageID()
+	// Don't update lastMessageID on initial connect - we want to check recent emails
+	// Only set it if it's the very first connection
+	if m.lastMessageID == 0 {
+		// Check last 10 messages on initial connect to catch recently sent magic links
+		status, err := m.client.Status("INBOX", []imap.StatusItem{imap.StatusMessages})
+		if err == nil && status.Messages > 0 {
+			// Start checking from 10 messages back (or from beginning if less than 10)
+			if status.Messages > 10 {
+				m.lastMessageID = status.Messages - 10
+			} else {
+				m.lastMessageID = 0
+			}
+			logging.Info("[EMAIL MONITOR] Will check last %d messages for magic links", status.Messages - m.lastMessageID)
+		}
+	} else {
+		// On reconnect, keep the existing lastMessageID
+		logging.Debug("[EMAIL MONITOR] Reconnected, continuing from message ID: %d", m.lastMessageID)
+	}
 	
 	return nil
 }
@@ -281,12 +298,24 @@ func (m *IMAPMonitor) checkNewEmails() error {
 		return nil
 	}
 	
-	// Check for new messages
+	// Check for new messages OR recent messages if we just started
 	from := m.lastMessageID + 1
 	to := status.Messages
 	
-	logging.Debug("[EMAIL CHECK] Checking messages from %d to %d (last checked: %d)", 
-		from, to, m.lastMessageID)
+	// If this is our first check (lastMessageID could be 0 or set to messages-10)
+	// make sure we check recent messages
+	if from == 1 || m.lastMessageID == 0 {
+		// Check last 10 messages on first scan
+		if status.Messages > 10 {
+			from = status.Messages - 9  // -9 because we want 10 messages total
+		} else {
+			from = 1
+		}
+		logging.Info("[EMAIL CHECK] First scan - checking messages from %d to %d", from, to)
+	} else {
+		logging.Debug("[EMAIL CHECK] Checking messages from %d to %d (last checked: %d)", 
+			from, to, m.lastMessageID)
+	}
 	
 	if from > to {
 		logging.Debug("[EMAIL CHECK] No new messages since last check")
@@ -438,6 +467,90 @@ func (m *IMAPMonitor) updateLastMessageID() {
 		m.lastMessageID = status.Messages
 		logging.Debug("[EMAIL MONITOR] Updated last message ID to: %d", m.lastMessageID)
 	}
+}
+
+// CheckRecentEmails checks emails from the last N minutes for magic links
+func (m *IMAPMonitor) CheckRecentEmails(minutes int) (string, error) {
+	if m.client == nil {
+		if err := m.Connect(); err != nil {
+			return "", err
+		}
+	}
+	
+	logging.Info("[EMAIL CHECK] Checking emails from last %d minutes for magic links...", minutes)
+	
+	// Get current mailbox status
+	status, err := m.client.Status("INBOX", []imap.StatusItem{imap.StatusMessages})
+	if err != nil {
+		return "", err
+	}
+	
+	if status.Messages == 0 {
+		logging.Debug("[EMAIL CHECK] Inbox is empty")
+		return "", nil
+	}
+	
+	// Check last 20 messages (should cover recent emails)
+	from := uint32(1)
+	to := status.Messages
+	
+	if status.Messages > 20 {
+		from = status.Messages - 19
+	}
+	
+	logging.Debug("[EMAIL CHECK] Scanning messages %d to %d for recent magic links", from, to)
+	
+	seqset := new(imap.SeqSet)
+	seqset.AddRange(from, to)
+	
+	messages := make(chan *imap.Message, 10)
+	done := make(chan error, 1)
+	
+	go func() {
+		section := &imap.BodySectionName{}
+		items := []imap.FetchItem{
+			imap.FetchEnvelope,
+			imap.FetchInternalDate,
+			section.FetchItem(),
+		}
+		done <- m.client.Fetch(seqset, items, messages)
+	}()
+	
+	// Check messages from most recent first
+	cutoffTime := time.Now().Add(-time.Duration(minutes) * time.Minute)
+	var foundLink string
+	
+	for msg := range messages {
+		// Check if message is recent enough
+		if msg.InternalDate.Before(cutoffTime) {
+			continue
+		}
+		
+		logging.Debug("[EMAIL CHECK] Processing message from %s (Subject: %s)", 
+			msg.InternalDate.Format("15:04:05"), msg.Envelope.Subject)
+		
+		// Extract body
+		section := &imap.BodySectionName{}
+		body := msg.GetBody(section)
+		if body != nil {
+			content, err := ioutil.ReadAll(body)
+			if err == nil {
+				// Look for magic links
+				link := extractMagicLinkFromContent(string(content))
+				if link != "" {
+					logging.Info("[EMAIL CHECK] Found magic link in email from %s", msg.InternalDate.Format("15:04:05"))
+					foundLink = link
+					break
+				}
+			}
+		}
+	}
+	
+	if err := <-done; err != nil {
+		return "", err
+	}
+	
+	return foundLink, nil
 }
 
 // extractMagicLinkFromContent extracts magic link URLs from email content
