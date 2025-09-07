@@ -3,7 +3,6 @@ package browser
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"runtime"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
+	"github.com/ciciliostudio/tod/internal/logging"
 )
 
 // ChromeDPManager manages a shared chromedp instance
@@ -56,13 +56,13 @@ func findChrome() (string, error) {
 		// For macOS apps, check if file exists directly
 		if runtime.GOOS == "darwin" {
 			if _, err := os.Stat(path); err == nil {
-				log.Printf("Found Chrome at: %s", path)
+				logging.Debug("Found Chrome at: %s", path)
 				return path, nil
 			}
 		} else {
 			// For Linux/Windows, use exec.LookPath
 			if _, err := exec.LookPath(path); err == nil {
-				log.Printf("Found Chrome at: %s", path)
+				logging.Debug("Found Chrome at: %s", path)
 				return path, nil
 			}
 		}
@@ -83,7 +83,7 @@ func NewChromeDPManager(baseURL string, headless bool) (*ChromeDPManager, error)
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("Using Chrome from: %s", chromePath)
+	logging.Info("Using Chrome from: %s", chromePath)
 	// Start with default options but use our found Chrome path
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.ExecPath(chromePath),
@@ -112,7 +112,7 @@ func NewChromeDPManager(baseURL string, headless bool) (*ChromeDPManager, error)
 		allocCtx,
 		chromedp.WithLogf(func(format string, v ...interface{}) {
 			// Log chrome debug info
-			log.Printf("[Chrome] "+format, v...)
+			logging.Debug("[Chrome] "+format, v...)
 		}),
 	)
 
@@ -136,11 +136,11 @@ func NewChromeDPManager(baseURL string, headless bool) (*ChromeDPManager, error)
 	// Navigate to initial URL (optional - don't fail if site is down)
 	if baseURL != "" {
 		// Try to navigate but don't fail if the site isn't available
-		log.Printf("Chrome started. Attempting initial navigation to %s...", baseURL)
+		logging.Info("Chrome started. Attempting initial navigation to %s...", baseURL)
 		if err := manager.Navigate(baseURL); err != nil {
-			log.Printf("Initial navigation failed (this is OK): %v", err)
+			logging.Debug("Initial navigation failed (this is OK): %v", err)
 		} else {
-			log.Printf("Successfully navigated to %s", baseURL)
+			logging.Info("Successfully navigated to %s", baseURL)
 		}
 	}
 
@@ -224,16 +224,16 @@ func (m *ChromeDPManager) SmartClick(selector string, text string) (bool, error)
 	}
 
 	// Strategy 1: Standard chromedp click
-	log.Printf("SmartClick: Trying standard click on selector: %s", selector)
+	logging.Debug("SmartClick: Trying standard click on selector: %s", selector)
 	if err := m.Click(selector); err == nil {
 		if changed := m.detectPageChange(initialURL, 500*time.Millisecond); changed {
-			log.Printf("SmartClick: Standard click successful for: %s", text)
+			logging.Debug("SmartClick: Standard click successful for: %s", text)
 			return true, nil
 		}
 	}
 
 	// Strategy 2: JavaScript click
-	log.Printf("SmartClick: Trying JavaScript click on selector: %s", selector)
+	logging.Debug("SmartClick: Trying JavaScript click on selector: %s", selector)
 	jsScript := fmt.Sprintf(`
 		const element = document.querySelector('%s');
 		if (element) {
@@ -247,13 +247,13 @@ func (m *ChromeDPManager) SmartClick(selector string, text string) (bool, error)
 	var jsResult bool
 	if err := m.ExecuteScript(jsScript, &jsResult); err == nil && jsResult {
 		if changed := m.detectPageChange(initialURL, 500*time.Millisecond); changed {
-			log.Printf("SmartClick: JavaScript click successful for: %s", text)
+			logging.Debug("SmartClick: JavaScript click successful for: %s", text)
 			return true, nil
 		}
 	}
 
 	// Strategy 3: Dispatch click event
-	log.Printf("SmartClick: Trying event dispatch on selector: %s", selector)
+	logging.Debug("SmartClick: Trying event dispatch on selector: %s", selector)
 	eventScript := fmt.Sprintf(`
 		const element = document.querySelector('%s');
 		if (element) {
@@ -270,13 +270,13 @@ func (m *ChromeDPManager) SmartClick(selector string, text string) (bool, error)
 	
 	if err := m.ExecuteScript(eventScript, &jsResult); err == nil && jsResult {
 		if changed := m.detectPageChange(initialURL, 500*time.Millisecond); changed {
-			log.Printf("SmartClick: Event dispatch successful for: %s", text)
+			logging.Debug("SmartClick: Event dispatch successful for: %s", text)
 			return true, nil
 		}
 	}
 
 	// Strategy 4: Focus and Enter key (for button-like elements)
-	log.Printf("SmartClick: Trying focus+enter on selector: %s", selector)
+	logging.Debug("SmartClick: Trying focus+enter on selector: %s", selector)
 	ctx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
 	defer cancel()
 
@@ -287,14 +287,14 @@ func (m *ChromeDPManager) SmartClick(selector string, text string) (bool, error)
 	
 	if err == nil {
 		if changed := m.detectPageChange(initialURL, 500*time.Millisecond); changed {
-			log.Printf("SmartClick: Focus+enter successful for: %s", text)
+			logging.Debug("SmartClick: Focus+enter successful for: %s", text)
 			return true, nil
 		}
 	}
 
 	// Strategy 5: Try finding by text content if selector failed
 	if text != "" {
-		log.Printf("SmartClick: Trying text-based click for: %s", text)
+		logging.Debug("SmartClick: Trying text-based click for: %s", text)
 		textScript := fmt.Sprintf(`
 			const elements = document.querySelectorAll('a, button, [role="button"]');
 			for (let el of elements) {
@@ -308,13 +308,13 @@ func (m *ChromeDPManager) SmartClick(selector string, text string) (bool, error)
 		
 		if err := m.ExecuteScript(textScript, &jsResult); err == nil && jsResult {
 			if changed := m.detectPageChange(initialURL, 500*time.Millisecond); changed {
-				log.Printf("SmartClick: Text-based click successful for: %s", text)
+				logging.Debug("SmartClick: Text-based click successful for: %s", text)
 				return true, nil
 			}
 		}
 	}
 
-	log.Printf("SmartClick: All strategies failed for: %s (selector: %s)", text, selector)
+	logging.Warn("SmartClick: All strategies failed for: %s (selector: %s)", text, selector)
 	return false, nil
 }
 
@@ -841,7 +841,7 @@ func GetGlobalChromeDPManager(baseURL string, headless bool) (*ChromeDPManager, 
 		select {
 		case <-globalChromeDPManager.ctx.Done():
 			// Context is done, need to create a new one
-			log.Printf("Previous Chrome instance was closed, creating new one")
+			logging.Debug("Previous Chrome instance was closed, creating new one")
 			globalChromeDPManager = nil
 		default:
 			// Context is still valid
@@ -849,7 +849,7 @@ func GetGlobalChromeDPManager(baseURL string, headless bool) (*ChromeDPManager, 
 		}
 	}
 
-	log.Printf("Creating new Chrome instance...")
+	logging.Info("Creating new Chrome instance...")
 	manager, err := NewChromeDPManager(baseURL, headless)
 	if err != nil {
 		return nil, err
@@ -890,7 +890,7 @@ func (m *ChromeDPManager) PollForChanges(duration time.Duration, interval time.D
 		// Get initial snapshot
 		initialHTML, err := m.GetPageHTML()
 		if err != nil {
-			log.Printf("Failed to get initial HTML: %v", err)
+			logging.Debug("Failed to get initial HTML: %v", err)
 			return
 		}
 		
@@ -914,13 +914,13 @@ func (m *ChromeDPManager) PollForChanges(duration time.Duration, interval time.D
 		for {
 			select {
 			case <-timeout:
-				log.Printf("Polling completed after %v", duration)
+				logging.Debug("Polling completed after %v", duration)
 				return
 				
 			case <-ticker.C:
 				html, err := m.GetPageHTML()
 				if err != nil {
-					log.Printf("Failed to get HTML during polling: %v", err)
+					logging.Debug("Failed to get HTML during polling: %v", err)
 					continue
 				}
 				
@@ -941,11 +941,11 @@ func (m *ChromeDPManager) PollForChanges(duration time.Duration, interval time.D
 						NewContent: newContent,
 					}
 					
-					log.Printf("HTML change detected at %d, new content length: %d", timestamp, len(newContent))
+					logging.Debug("HTML change detected at %d, new content length: %d", timestamp, len(newContent))
 				}
 				
 			case <-m.ctx.Done():
-				log.Printf("Chrome context cancelled, stopping polling")
+				logging.Debug("Chrome context cancelled, stopping polling")
 				return
 			}
 		}

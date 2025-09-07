@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/url"
 	"os"
 	"runtime"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
+	"github.com/ciciliostudio/tod/internal/logging"
 )
 
 // Client represents a headless browser automation client
@@ -79,13 +79,13 @@ func NewClient(baseURL string) (*Client, error) {
 			chromedp.Flag("remote-debugging-port", debugPort),
 			chromedp.Flag("remote-debugging-address", "127.0.0.1"),
 		)
-		log.Printf("Chrome debugging enabled on port %s", debugPort)
+		logging.Info("Chrome debugging enabled on port %s", debugPort)
 	}
 	
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	
 	// Create a context
-	ctx, ctxCancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
+	ctx, ctxCancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(logging.Debug))
 	
 	return &Client{
 		ctx:          ctx,

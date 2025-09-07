@@ -3,7 +3,6 @@ package views
 import (
 	"context"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/ciciliostudio/tod/internal/browser"
 	"github.com/ciciliostudio/tod/internal/config"
 	"github.com/ciciliostudio/tod/internal/llm"
+	"github.com/ciciliostudio/tod/internal/logging"
 	"github.com/ciciliostudio/tod/internal/users"
 )
 
@@ -1711,7 +1711,7 @@ func (v *NavigationView) navigateToTarget(target string) error {
 						
 						// Log attempt but continue to next option
 						if err != nil {
-							log.Printf("SmartClick failed for %s: %v", rankedElem.Text, err)
+							logging.Debug("SmartClick failed for %s: %v", rankedElem.Text, err)
 						}
 					}
 				}

@@ -2,12 +2,12 @@ package email
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"github.com/ciciliostudio/tod/internal/browser"
+	"github.com/ciciliostudio/tod/internal/logging"
 	"gopkg.in/yaml.v3"
 )
 
@@ -79,11 +79,11 @@ func (m *MonitorService) StartBackgroundMonitoring() error {
 	// Try to connect to Chrome
 	wsURL, err := browser.GetChromeWebSocketURL("localhost", "9222")
 	if err != nil {
-		log.Printf("Warning: Chrome DevTools not available. Magic links will be logged but not navigated: %v", err)
+		logging.Warn("Chrome DevTools not available. Magic links will be logged but not navigated: %v", err)
 		m.wsURL = ""
 	} else {
 		m.wsURL = wsURL
-		log.Printf("Connected to Chrome DevTools")
+		logging.Info("Connected to Chrome DevTools")
 	}
 	
 	// Create IMAP monitor
@@ -94,7 +94,7 @@ func (m *MonitorService) StartBackgroundMonitoring() error {
 	
 	// Start monitoring in background
 	stopChan, err := monitor.StartMonitoringBackground(func(magicLink string) error {
-		log.Printf("[MONITOR SERVICE] 🎆 Magic link detected: %s", magicLink)
+		logging.Info("[MONITOR SERVICE] Magic link detected: %s", magicLink)
 		
 		// Send to channel if anyone is listening
 		select {
@@ -106,25 +106,25 @@ func (m *MonitorService) StartBackgroundMonitoring() error {
 		// Call global callback if set
 		if m.onMagicLink != nil {
 			if err := m.onMagicLink(magicLink); err != nil {
-				log.Printf("[MONITOR SERVICE] Callback error: %v", err)
+				logging.Error("[MONITOR SERVICE] Callback error: %v", err)
 			}
 		}
 		
 		// Navigate Chrome if available
 		if m.wsURL != "" {
-			log.Printf("[MONITOR SERVICE] Auto-navigating Chrome to magic link...")
+			logging.Info("[MONITOR SERVICE] Auto-navigating Chrome to magic link...")
 			if err := browser.NavigateToURLDirect(m.wsURL, magicLink); err != nil {
-				log.Printf("[MONITOR SERVICE] Failed to navigate Chrome: %v", err)
+				logging.Error("[MONITOR SERVICE] Failed to navigate Chrome: %v", err)
 				// Try to reconnect to Chrome
 				if newWSURL, err := browser.GetChromeWebSocketURL("localhost", "9222"); err == nil {
 					m.wsURL = newWSURL
 					// Retry navigation
 					if err := browser.NavigateToURLDirect(m.wsURL, magicLink); err == nil {
-						log.Printf("[MONITOR SERVICE] Chrome navigated successfully after reconnection")
+						logging.Info("[MONITOR SERVICE] Chrome navigated successfully after reconnection")
 					}
 				}
 			} else {
-				log.Printf("[MONITOR SERVICE] ✅ Chrome navigated to magic link successfully")
+				logging.Info("[MONITOR SERVICE] Chrome navigated to magic link successfully")
 			}
 		}
 		
@@ -139,7 +139,7 @@ func (m *MonitorService) StartBackgroundMonitoring() error {
 	m.stopChan = stopChan
 	m.isRunning = true
 	
-	log.Printf("[MONITOR SERVICE] 🚀 Email monitoring started in background (user: %s)", imapConfig.Username)
+	logging.Info("[MONITOR SERVICE] Email monitoring started in background (user: %s)", imapConfig.Username)
 	return nil
 }
 
@@ -157,7 +157,7 @@ func (m *MonitorService) StopMonitoring() {
 	}
 	
 	m.isRunning = false
-	log.Println("Email monitoring stopped")
+	logging.Info("Email monitoring stopped")
 }
 
 // IsRunning returns whether monitoring is currently active
@@ -210,7 +210,7 @@ func AutoStartMonitoring(projectDir string) {
 			// Start monitoring
 			monitor := GetMonitorService(projectDir)
 			if err := monitor.StartBackgroundMonitoring(); err != nil {
-				log.Printf("Failed to auto-start email monitoring: %v", err)
+				logging.Warn("Failed to auto-start email monitoring: %v", err)
 			}
 		}
 	}

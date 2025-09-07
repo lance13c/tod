@@ -4,12 +4,12 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/ciciliostudio/tod/internal/logging"
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
 	"github.com/emersion/go-message/mail"
@@ -199,7 +199,7 @@ func (m *IMAPMonitor) StartMonitoring(onMagicLink func(url string) error) error 
 		}
 	}
 	
-	log.Println("Starting email monitoring for magic links...")
+	logging.Info("Starting email monitoring for magic links...")
 	
 	ticker := time.NewTicker(m.pollInterval)
 	defer ticker.Stop()
@@ -208,10 +208,10 @@ func (m *IMAPMonitor) StartMonitoring(onMagicLink func(url string) error) error 
 		select {
 		case <-ticker.C:
 			if err := m.checkNewEmails(); err != nil {
-				log.Printf("Error checking emails: %v", err)
+				logging.Error("Error checking emails: %v", err)
 				// Try to reconnect
 				if err := m.Connect(); err != nil {
-					log.Printf("Failed to reconnect: %v", err)
+					logging.Error("Failed to reconnect: %v", err)
 				}
 			}
 		}
@@ -228,7 +228,7 @@ func (m *IMAPMonitor) StartMonitoringBackground(onMagicLink func(url string) err
 		}
 	}
 	
-	log.Println("[EMAIL MONITOR] Starting background email monitoring for magic links...")
+	logging.Info("[EMAIL MONITOR] Starting background email monitoring for magic links...")
 	
 	stopChan := make(chan struct{})
 	
@@ -241,20 +241,20 @@ func (m *IMAPMonitor) StartMonitoringBackground(onMagicLink func(url string) err
 		for {
 			select {
 			case <-stopChan:
-				log.Println("[EMAIL MONITOR] Stopping email monitoring...")
+				logging.Info("[EMAIL MONITOR] Stopping email monitoring...")
 				return
 			case <-ticker.C:
 				checkCount++
 				// Log heartbeat every 10 checks
 				if checkCount%10 == 0 {
-					log.Printf("[EMAIL MONITOR] Heartbeat: Still monitoring (check #%d)", checkCount)
+					logging.Debug("[EMAIL MONITOR] Heartbeat: Still monitoring (check #%d)", checkCount)
 				}
 				
 				if err := m.checkNewEmails(); err != nil {
-					log.Printf("[EMAIL MONITOR] Error checking emails: %v", err)
+					logging.Error("[EMAIL MONITOR] Error checking emails: %v", err)
 					// Try to reconnect
 					if err := m.Connect(); err != nil {
-						log.Printf("[EMAIL MONITOR] Failed to reconnect: %v", err)
+						logging.Error("[EMAIL MONITOR] Failed to reconnect: %v", err)
 					}
 				}
 			}
@@ -266,7 +266,7 @@ func (m *IMAPMonitor) StartMonitoringBackground(onMagicLink func(url string) err
 
 // checkNewEmails checks for new emails and extracts magic links
 func (m *IMAPMonitor) checkNewEmails() error {
-	log.Printf("[EMAIL CHECK] Starting email check...")
+	logging.Debug("[EMAIL CHECK] Starting email check...")
 	
 	// Get current mailbox status
 	status, err := m.client.Status("INBOX", []imap.StatusItem{imap.StatusMessages})
@@ -274,10 +274,10 @@ func (m *IMAPMonitor) checkNewEmails() error {
 		return err
 	}
 	
-	log.Printf("[EMAIL CHECK] Inbox has %d total messages", status.Messages)
+	logging.Debug("[EMAIL CHECK] Inbox has %d total messages", status.Messages)
 	
 	if status.Messages == 0 {
-		log.Printf("[EMAIL CHECK] Inbox is empty, nothing to check")
+		logging.Debug("[EMAIL CHECK] Inbox is empty, nothing to check")
 		return nil
 	}
 	
@@ -285,16 +285,16 @@ func (m *IMAPMonitor) checkNewEmails() error {
 	from := m.lastMessageID + 1
 	to := status.Messages
 	
-	log.Printf("[EMAIL CHECK] Checking messages from %d to %d (last checked: %d)", 
+	logging.Debug("[EMAIL CHECK] Checking messages from %d to %d (last checked: %d)", 
 		from, to, m.lastMessageID)
 	
 	if from > to {
-		log.Printf("[EMAIL CHECK] No new messages since last check")
+		logging.Debug("[EMAIL CHECK] No new messages since last check")
 		return nil
 	}
 	
 	newMessageCount := to - from + 1
-	log.Printf("[EMAIL CHECK] Found %d new message(s) to process", newMessageCount)
+	logging.Debug("[EMAIL CHECK] Found %d new message(s) to process", newMessageCount)
 	
 	seqset := new(imap.SeqSet)
 	seqset.AddRange(from, to)
@@ -326,7 +326,7 @@ func (m *IMAPMonitor) checkNewEmails() error {
 		
 		// Process the message body
 		if err := m.processMessage(msg); err != nil {
-			log.Printf("[EMAIL PARSE] Error processing message: %v", err)
+			logging.Error("[EMAIL PARSE] Error processing message: %v", err)
 		}
 		
 		// Update last message ID
@@ -339,7 +339,7 @@ func (m *IMAPMonitor) checkNewEmails() error {
 		return err
 	}
 	
-	log.Printf("[EMAIL CHECK] Processed %d messages", processed)
+	logging.Debug("[EMAIL CHECK] Processed %d messages", processed)
 	return nil
 }
 
@@ -347,7 +347,7 @@ func (m *IMAPMonitor) checkNewEmails() error {
 func (m *IMAPMonitor) processMessage(msg *imap.Message) error {
 	// Log message details
 	if msg.Envelope != nil {
-		log.Printf("[EMAIL PARSE] Processing message from: %v, subject: %s", 
+		logging.Debug("[EMAIL PARSE] Processing message from: %v, subject: %s", 
 			msg.Envelope.From, msg.Envelope.Subject)
 	}
 	
@@ -357,10 +357,10 @@ func (m *IMAPMonitor) processMessage(msg *imap.Message) error {
 	// Try to get the full body first
 	body = msg.GetBody(&imap.BodySectionName{})
 	if body == nil {
-		log.Printf("[EMAIL PARSE] GetBody returned nil, trying alternative approach")
+		logging.Debug("[EMAIL PARSE] GetBody returned nil, trying alternative approach")
 		// Try to get specific parts
 		for name, literal := range msg.Body {
-			log.Printf("[EMAIL PARSE] Found body section: %v", name)
+			logging.Debug("[EMAIL PARSE] Found body section: %v", name)
 			if literal != nil {
 				body = literal
 				break
@@ -386,7 +386,7 @@ func (m *IMAPMonitor) processMessage(msg *imap.Message) error {
 			break
 		}
 		if err != nil {
-			log.Printf("[EMAIL PARSE] Failed to read part: %v", err)
+			logging.Debug("[EMAIL PARSE] Failed to read part: %v", err)
 			continue
 		}
 		
@@ -395,17 +395,17 @@ func (m *IMAPMonitor) processMessage(msg *imap.Message) error {
 			// Read the body
 			b, _ := io.ReadAll(p.Body)
 			emailContent.Write(b)
-			log.Printf("[EMAIL PARSE] Read inline part (%d bytes)", len(b))
+			logging.Debug("[EMAIL PARSE] Read inline part (%d bytes)", len(b))
 		case *mail.AttachmentHeader:
 			// Skip attachments
-			log.Printf("[EMAIL PARSE] Skipping attachment")
+			logging.Debug("[EMAIL PARSE] Skipping attachment")
 			_ = h
 		}
 	}
 	
 	// Extract magic link from email content
 	content := emailContent.String()
-	log.Printf("[EMAIL PARSE] Email content length: %d bytes", len(content))
+	logging.Debug("[EMAIL PARSE] Email content length: %d bytes", len(content))
 	
 	// Log first 500 chars of content for debugging (sanitized)
 	if len(content) > 0 {
@@ -413,19 +413,19 @@ func (m *IMAPMonitor) processMessage(msg *imap.Message) error {
 		if len(preview) > 500 {
 			preview = preview[:500] + "..."
 		}
-		log.Printf("[EMAIL PARSE] Content preview: %s", preview)
+		logging.Debug("[EMAIL PARSE] Content preview: %s", preview)
 	}
 	
 	link := extractMagicLinkFromContent(content)
 	if link != "" {
-		log.Printf("[EMAIL PARSE] ✅ Found magic link: %s", link)
+		logging.Info("[EMAIL PARSE] Found magic link: %s", link)
 		if m.onMagicLink != nil {
 			if err := m.onMagicLink(link); err != nil {
-				log.Printf("[EMAIL PARSE] Error in callback: %v", err)
+				logging.Error("[EMAIL PARSE] Error in callback: %v", err)
 			}
 		}
 	} else {
-		log.Printf("[EMAIL PARSE] ❌ No magic link found in this message")
+		logging.Debug("[EMAIL PARSE] No magic link found in this message")
 	}
 	
 	return nil
@@ -436,25 +436,25 @@ func (m *IMAPMonitor) updateLastMessageID() {
 	status, err := m.client.Status("INBOX", []imap.StatusItem{imap.StatusMessages})
 	if err == nil && status.Messages > 0 {
 		m.lastMessageID = status.Messages
-		log.Printf("[EMAIL MONITOR] Updated last message ID to: %d", m.lastMessageID)
+		logging.Debug("[EMAIL MONITOR] Updated last message ID to: %d", m.lastMessageID)
 	}
 }
 
 // extractMagicLinkFromContent extracts magic link URLs from email content
 func extractMagicLinkFromContent(content string) string {
-	log.Printf("[REGEX EXTRACT] Starting regex extraction on %d bytes", len(content))
+	logging.Debug("[REGEX EXTRACT] Starting regex extraction on %d bytes", len(content))
 	
 	// First try: Look for URLs with auth-related keywords
 	authURLRegex := regexp.MustCompile(
 		`https?://[^\s<>"']+(?:verify|auth|login|confirm|activate|magic|token|signin|sign-in)[^\s<>"']*`,
 	)
 	matches := authURLRegex.FindAllString(content, -1)
-	log.Printf("[REGEX EXTRACT] Auth regex found %d matches", len(matches))
+	logging.Debug("[REGEX EXTRACT] Auth regex found %d matches", len(matches))
 	
 	if len(matches) > 0 {
 		// Log all matches for debugging
 		for i, match := range matches {
-			log.Printf("[REGEX EXTRACT] Auth match %d: %s", i+1, match)
+			logging.Debug("[REGEX EXTRACT] Auth match %d: %s", i+1, match)
 		}
 		// Clean up the URL (remove any trailing punctuation)
 		cleanURL := strings.TrimRight(matches[0], ".,;:!?")
@@ -464,7 +464,7 @@ func extractMagicLinkFromContent(content string) string {
 	// Second try: Look for any HTTP/HTTPS URL that's not unsubscribe/privacy/terms
 	generalURLRegex := regexp.MustCompile(`https?://[^\s<>"']+`)
 	matches = generalURLRegex.FindAllString(content, -1)
-	log.Printf("[REGEX EXTRACT] General regex found %d URLs", len(matches))
+	logging.Debug("[REGEX EXTRACT] General regex found %d URLs", len(matches))
 	
 	for _, url := range matches {
 		lowerURL := strings.ToLower(url)
@@ -479,12 +479,12 @@ func extractMagicLinkFromContent(content string) string {
 		   !strings.Contains(lowerURL, "help") {
 			// Clean up the URL
 			cleanURL := strings.TrimRight(url, ".,;:!?")
-			log.Printf("[REGEX EXTRACT] Selected URL: %s", cleanURL)
+			logging.Debug("[REGEX EXTRACT] Selected URL: %s", cleanURL)
 			return cleanURL
 		}
 	}
 	
-	log.Printf("[REGEX EXTRACT] No suitable URL found")
+	logging.Debug("[REGEX EXTRACT] No suitable URL found")
 	return ""
 }
 

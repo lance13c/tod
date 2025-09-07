@@ -10,6 +10,7 @@ import (
 	"github.com/ciciliostudio/tod/internal/browser"
 	"github.com/ciciliostudio/tod/internal/config"
 	"github.com/ciciliostudio/tod/internal/email"
+	"github.com/ciciliostudio/tod/internal/logging"
 	"github.com/spf13/cobra"
 )
 
@@ -54,10 +55,25 @@ func initConfig() {
 	verbose, _ := rootCmd.PersistentFlags().GetBool("verbose")
 	
 	projectDir, _ := rootCmd.PersistentFlags().GetString("project")
+	
+	// Initialize logging first
+	if err := logging.Initialize(projectDir); err != nil {
+		// Fall back to stderr if logging fails to initialize
+		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize logging: %v\n", err)
+	} else {
+		// Redirect standard log to our file logger
+		logging.RedirectStandardLog()
+	}
+	
+	// Set log level based on verbose flag
+	if verbose {
+		logging.GetLogger().SetLevel(logging.DEBUG)
+	}
+	
 	loader := config.NewLoader(projectDir)
 	
 	if verbose {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Config loader created in %v\n", time.Since(startTime))
+		logging.Debug("Config loader created in %v", time.Since(startTime))
 	}
 	
 	// Load configuration if available
@@ -66,12 +82,10 @@ func initConfig() {
 		var err error
 		todConfig, err = loader.Load()
 		if err != nil {
-			if verbose {
-				fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", err)
-			}
+			logging.Warn("Failed to load config: %v", err)
 		} else {
 			if verbose {
-				fmt.Fprintf(os.Stderr, "[DEBUG] Config loaded in %v\n", time.Since(loadStart))
+				logging.Debug("Config loaded in %v", time.Since(loadStart))
 			}
 			
 			// Apply environment override from flag
@@ -84,14 +98,12 @@ func initConfig() {
 			// Auto-start email monitoring if configured
 			email.AutoStartMonitoring(projectDir)
 			
-			if verbose {
-				fmt.Fprintf(os.Stderr, "Using config with environment: %s\n", todConfig.Current)
-			}
+			logging.Info("Using config with environment: %s", todConfig.Current)
 		}
 	}
 
 	if verbose {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Total config init time: %v\n", time.Since(startTime))
+		logging.Debug("Total config init time: %v", time.Since(startTime))
 	}
 }
 

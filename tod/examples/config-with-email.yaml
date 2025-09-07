@@ -1,0 +1,55 @@
+# Example Tod configuration with email monitoring for magic links
+
+# Model configuration
+model:
+  provider: anthropic  # or openai, google, openrouter
+  name: claude-3-5-sonnet-20241022
+  base_url: ""  # Optional: custom API endpoint
+  api_key: ""   # Optional: defaults to environment variable
+
+# Email monitoring configuration (IMAP)
+email:
+  # IMAP server configuration for reading emails
+  imap_host: imap.fastmail.com    # Your IMAP server
+  imap_port: 993                   # Standard IMAP SSL port (993)
+  imap_user: user@example.com      # Your email username
+  imap_pass: app-specific-password # App-specific password (not main password)
+  imap_secure: true                # Use SSL/TLS connection (recommended)
+  
+  # Common IMAP servers:
+  # Gmail:     imap.gmail.com:993       (requires app password)
+  # Fastmail:  imap.fastmail.com:993    (use app-specific password)
+  # Outlook:   outlook.office365.com:993 (enable IMAP in settings)
+  # Yahoo:     imap.mail.yahoo.com:993  (generate app password)
+
+# Environment configurations
+envs:
+  local:
+    url: http://localhost:3000
+    test_users:
+      - email: test@example.com
+        password: test123
+  
+  staging:
+    url: https://staging.example.com
+    test_users:
+      - email: staging@example.com
+        password: staging123
+
+current: local
+
+# Chrome debugging configuration
+chrome:
+  host: localhost
+  port: 9222
+
+# Features
+features:
+  # Auto-start email monitoring when Tod launches
+  auto_monitor: true
+  
+  # Auto-navigate Chrome to detected magic links
+  auto_navigate: true
+  
+  # Poll interval for checking emails (seconds)
+  email_poll_interval: 5

@@ -2,13 +2,13 @@ package views
 
 import (
 	"fmt"
-	"log"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/ciciliostudio/tod/internal/browser"
 	"github.com/ciciliostudio/tod/internal/config"
+	"github.com/ciciliostudio/tod/internal/logging"
 )
 
 // FormFieldType represents the type of form field
@@ -329,7 +329,7 @@ func (f *FormHandler) FillField(field *FormField, value string) error {
 
 	// Clear the field first
 	if err := f.clearField(field.Selector); err != nil {
-		log.Printf("Warning: failed to clear field %s: %v", field.Selector, err)
+		logging.Debug("Warning: failed to clear field %s: %v", field.Selector, err)
 	}
 
 	// Fill the field
@@ -392,7 +392,7 @@ func (f *FormHandler) WaitForPageChange(timeout time.Duration) (*PageChangeResul
 		// Get current page info
 		currentURL, title, err := f.chromeDPManager.GetPageInfo()
 		if err != nil {
-			log.Printf("Warning: failed to get page info during monitoring: %v", err)
+			logging.Debug("Warning: failed to get page info during monitoring: %v", err)
 			continue
 		}
 
