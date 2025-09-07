@@ -149,11 +149,11 @@ func runInit(cmd *cobra.Command, args []string) {
 			os.Exit(1)
 		}
 	} else {
-		// Interactive analysis selection
-		analysisChoice, err := components.RunAnalysisSelector(cwd, nil) // We'll create the client if needed
-		if err != nil {
-			fmt.Printf("Error in analysis selection: %v\n", err)
-			os.Exit(1)
+		// Skip analysis selection and go directly to navigation mode
+		// Use "skip" type to bypass AI analysis
+		analysisChoice := &components.AnalysisChoice{
+			Type:        "skip",
+			Directories: []string{},
 		}
 
 		results, err = scanProjectActions(cwd, todConfig, analysisChoice)
