@@ -78,23 +78,6 @@ make hotdev    # Start hot reload (keep running)
 toddev         # Use from anywhere - auto-updates!
 ```
 
-## Usage
-
-Launch `tod` and you'll see the interactive menu:
-
-```
-Welcome, brave tester! Choose your path:
-
-  > Start New Journey
-    Continue Journey
-    Review Past Adventures
-    Generate Test Scroll
-    Configure Your Realm
-    Exit
-```
-
-Navigate with ↑/↓, select with Enter, and quit with 'q'.
-
 ## Development
 
 ```bash
@@ -113,31 +96,6 @@ make install
 # Clean up
 make clean
 ```
-
-### Release Process
-
-```bash
-# Build universal binary for macOS
-make build-universal
-
-# Create macOS application bundle
-make build-app
-
-# Create DMG installer
-make build-dmg
-
-# Generate SHA256 for Homebrew Cask
-make sha256
-
-# Full release process (all of the above)
-make release
-```
-
-The release process creates:
-- Universal binary supporting both Intel and Apple Silicon Macs
-- Proper macOS application bundle (Tod.app)
-- DMG installer for distribution
-- SHA256 hash for Homebrew Cask formula
 
 ## Support
 
