@@ -10,12 +10,13 @@
 # Build artifacts
 dist/
 tmp/
-toddev
 tod
 *.exe
 *.dll
 *.so
 *.dylib
+tmp/*
+toddev
 
 # Security files
 *.pem
