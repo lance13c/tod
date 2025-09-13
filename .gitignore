@@ -1,0 +1,84 @@
+# Tod directory and configurations
+.tod/
+.claude/
+.dist
+
+# Environment files and secrets
+.env*
+!.env.example
+
+# Build artifacts
+dist/
+tmp/
+toddev
+tod
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Security files
+*.pem
+*.p12
+*.key
+*.crt
+*.csr
+
+# Go specific
+# Binaries for programs and plugins
+*.exe~
+*.test
+*.prof
+*.out
+go.work
+go.work.sum
+
+# Dependency directories
+vendor/
+
+# Test coverage
+*.cover
+coverage.out
+coverage.html
+
+# Air live reload
+.air.toml
+
+# System files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Log files
+*.log
+logs/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.vim/
+.emacs.d/
+.sublime-*
+
+# Backup files
+*.bak
+*.orig
+*.rej
+*.tmp
+
+# OS generated files
+.fseventsd
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Runtime files
+*.pid
+*.seed
+*.pid.lock

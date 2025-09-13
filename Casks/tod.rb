@@ -21,6 +21,6 @@ cask "tod" do
   zap trash: [
     "~/Library/Application Support/tod",
     "~/Library/Caches/tod",
-    "~/Library/Preferences/com.ciciliostudio.tod.plist",
+    "~/Library/Preferences/com.tod.app.plist",
   ]
 end

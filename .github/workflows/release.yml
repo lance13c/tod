@@ -1,0 +1,73 @@
+name: Release Tod
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.2.3)'
+        required: true
+        type: string
+      release_type:
+        description: 'Release type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+        - patch
+        - minor
+        - major
+
+jobs:
+  release:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.24'
+        
+    - name: Install dependencies
+      run: |
+        brew install gh
+        go install github.com/air-verse/air@latest
+        
+    - name: Import Code Signing Certificates
+      uses: apple-actions/import-codesign-certs@v2
+      with:
+        p12-file-base64: ${{ secrets.CERTIFICATES_P12 }}
+        p12-password: ${{ secrets.CERTIFICATES_P12_PASSWORD }}
+        
+    - name: Setup notarization credentials
+      run: |
+        xcrun notarytool store-credentials "github-actions-profile" \
+          --apple-id "${{ secrets.APPLE_ID }}" \
+          --team-id "${{ secrets.TEAM_ID }}" \
+          --password "${{ secrets.APPLE_APP_PASSWORD }}"
+          
+    - name: Build and release
+      env:
+        RELEASES_REPO: ${{ secrets.RELEASES_REPO }}
+        PUBLIC_REPO: ${{ secrets.PUBLIC_REPO }}
+        TOD_HOMEPAGE: ${{ secrets.TOD_HOMEPAGE }}
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        TEAM_ID: ${{ secrets.TEAM_ID }}
+        NOTARIZATION_PROFILE: "github-actions-profile"
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      working-directory: ./tod
+      run: |
+        chmod +x release.sh
+        ./release.sh -v ${{ inputs.version }}
+        
+    - name: Upload release artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: release-artifacts
+        path: |
+          tod/dist/*.dmg
+          tod/homebrew/tod.rb
+        retention-days: 30
